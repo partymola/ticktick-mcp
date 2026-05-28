@@ -20,8 +20,8 @@ def verify_mutation(operation: str, expected: dict, actual: dict) -> list:
 
     mismatches = []
 
-    EXACT_FIELDS = {'title', 'content', 'priority'}
-    PRESENCE_FIELDS = {'dueDate', 'startDate', 'timeZone', 'reminders', 'repeat', 'repeatFlag'}
+    EXACT_FIELDS = {"title", "content", "priority"}
+    PRESENCE_FIELDS = {"dueDate", "startDate", "timeZone", "reminders", "repeat", "repeatFlag"}
 
     for field in EXACT_FIELDS:
         if field in expected and expected[field] is not None:
@@ -34,9 +34,7 @@ def verify_mutation(operation: str, expected: dict, actual: dict) -> list:
     for field in PRESENCE_FIELDS:
         if field in expected and expected[field] is not None:
             if actual.get(field) is None:
-                mismatches.append(
-                    f"{field}: was set but API returned None (data may be lost)"
-                )
+                mismatches.append(f"{field}: was set but API returned None (data may be lost)")
 
     if mismatches:
         logging.warning(f"Verification failed after {operation}: {'; '.join(mismatches)}")

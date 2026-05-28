@@ -297,18 +297,14 @@ class TaskFilterer:
             except ConnectionError:
                 raise
             except Exception as exc:
-                raise ConnectionError(
-                    f"Failed to fetch completed tasks: {exc}"
-                ) from exc
+                raise ConnectionError(f"Failed to fetch completed tasks: {exc}") from exc
 
             if tasks is None:
                 return []
             if isinstance(tasks, dict):
                 tasks = [tasks]
             # Re-apply the window for precision (API filter is by day).
-            return [t for t in tasks if completion_date_filter.contains(
-                t.get("completedTime")
-            )]
+            return [t for t in tasks if completion_date_filter.contains(t.get("completedTime"))]
 
         # Uncompleted -> walk projects.
         return _get_all_tasks_from_ticktick()
@@ -364,9 +360,7 @@ def _build_property_filter(
 
     status = filter_criteria.get("status", "uncompleted")
     if status not in _VALID_STATUSES:
-        raise ValueError(
-            f"Invalid status {status!r}. Must be 'uncompleted' or 'completed'."
-        )
+        raise ValueError(f"Invalid status {status!r}. Must be 'uncompleted' or 'completed'.")
 
     tz_name = filter_criteria.get("tz")
     tz_info: Optional[ZoneInfo] = None
@@ -463,9 +457,7 @@ async def ticktick_filter_tasks(filter_criteria: Any) -> str:
             }``
     """
     try:
-        property_filter, tz_info, sort_by_priority = _build_property_filter(
-            filter_criteria
-        )
+        property_filter, tz_info, sort_by_priority = _build_property_filter(filter_criteria)
     except ValueError as exc:
         return format_response({"error": str(exc), "status": "error"})
 
@@ -481,8 +473,6 @@ async def ticktick_filter_tasks(filter_criteria: Any) -> str:
         return format_response({"error": str(exc), "status": "error"})
     except Exception as exc:
         logger.error("ticktick_filter_tasks: unexpected error: %s", exc, exc_info=True)
-        return format_response(
-            {"error": f"unexpected error: {exc}", "status": "error"}
-        )
+        return format_response({"error": f"unexpected error: {exc}", "status": "error"})
 
     return format_response(results)

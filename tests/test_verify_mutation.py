@@ -1,7 +1,5 @@
 """Tests for _verify_mutation: read-after-write verification of TickTick API responses."""
 
-import pytest
-
 from ticktick_mcp.verification import verify_mutation as _verify_mutation
 
 

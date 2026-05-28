@@ -1,11 +1,12 @@
 """Tests for day-of-week validation in create_task and update_task."""
 
 import datetime
-import pytest
 import zoneinfo
 
+import pytest
+
 from ticktick_mcp.helpers import ToolLogicError
-from ticktick_mcp.tools.task_tools import _validate_day_of_week, TaskObject
+from ticktick_mcp.tools.task_tools import TaskObject, _validate_day_of_week
 
 
 class TestValidateDayOfWeek:
@@ -60,9 +61,7 @@ class TestValidateDayOfWeek:
 
     def test_timezone_in_error_message(self):
         with pytest.raises(ToolLogicError, match="in Europe/London"):
-            _validate_day_of_week(
-                "2026-04-14T20:45:00+01:00", "Monday", "dueDate", "Europe/London"
-            )
+            _validate_day_of_week("2026-04-14T20:45:00+01:00", "Monday", "dueDate", "Europe/London")
 
     def test_non_english_day_name_rejected(self):
         # "Lunes" is Spanish for Monday - should be rejected with a clear message
@@ -92,7 +91,9 @@ class TestTaskObjectExpectedDayOfWeek:
         task = TaskObject(
             id="test123",
             projectId="proj456",
-            dueDate=datetime.datetime(2026, 4, 13, 20, 45, tzinfo=zoneinfo.ZoneInfo("Europe/London")),
+            dueDate=datetime.datetime(
+                2026, 4, 13, 20, 45, tzinfo=zoneinfo.ZoneInfo("Europe/London")
+            ),
             expectedDayOfWeek="Monday",
             timeZone="Europe/London",
         )
@@ -103,7 +104,9 @@ class TestTaskObjectExpectedDayOfWeek:
         task = TaskObject(
             id="test123",
             projectId="proj456",
-            dueDate=datetime.datetime(2026, 4, 13, 20, 45, tzinfo=zoneinfo.ZoneInfo("Europe/London")),
+            dueDate=datetime.datetime(
+                2026, 4, 13, 20, 45, tzinfo=zoneinfo.ZoneInfo("Europe/London")
+            ),
             expectedDayOfWeek="Monday",
             timeZone="Europe/London",
         )

@@ -2,10 +2,11 @@
 
 import asyncio
 import json
-import pytest
 from unittest.mock import MagicMock, patch
 
-from ticktick_mcp.tools.task_tools import update_task, TaskObject
+import pytest
+
+from ticktick_mcp.tools.task_tools import TaskObject, update_task
 
 
 def run(coro):
@@ -14,6 +15,7 @@ def run(coro):
 
 
 # --- Fixtures ---
+
 
 @pytest.fixture
 def mock_client():
@@ -55,8 +57,8 @@ def existing_task_with_dates():
 
 # --- Tests: Partial updates preserve existing fields ---
 
-class TestUpdateTaskPartialUpdate:
 
+class TestUpdateTaskPartialUpdate:
     def test_update_only_priority_preserves_dates_and_reminders(
         self, mock_client, existing_task_with_dates
     ):
@@ -69,7 +71,7 @@ class TestUpdateTaskPartialUpdate:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
 
@@ -79,9 +81,7 @@ class TestUpdateTaskPartialUpdate:
         assert sent_to_api["title"] == "Buy groceries"
         assert sent_to_api["tags"] == ["shopping"]
 
-    def test_update_only_dates_preserves_priority(
-        self, mock_client, existing_task_with_dates
-    ):
+    def test_update_only_dates_preserves_priority(self, mock_client, existing_task_with_dates):
         """Updating only dates should not reset priority to 0."""
         mock_client.get_by_id = MagicMock(return_value=existing_task_with_dates.copy())
 
@@ -96,7 +96,7 @@ class TestUpdateTaskPartialUpdate:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
 
@@ -107,8 +107,8 @@ class TestUpdateTaskPartialUpdate:
 
 # --- Tests: Reminder normalization ---
 
-class TestUpdateTaskReminderNormalization:
 
+class TestUpdateTaskReminderNormalization:
     def test_reminders_object_format_normalized_to_strings(
         self, mock_client, existing_task_with_dates
     ):
@@ -121,7 +121,7 @@ class TestUpdateTaskReminderNormalization:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
         assert sent_to_api["reminders"] == ["TRIGGER:-PT30M", "TRIGGER:PT0S"]
@@ -143,7 +143,7 @@ class TestUpdateTaskReminderNormalization:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
         assert sent_to_api["reminders"] == ["TRIGGER:-PT15M"]
@@ -167,7 +167,7 @@ class TestUpdateTaskReminderNormalization:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
         assert sent_to_api["reminders"] == ["TRIGGER:-PT1H", "TRIGGER:PT0S"]
@@ -175,11 +175,9 @@ class TestUpdateTaskReminderNormalization:
 
 # --- Tests: Read-only field filtering ---
 
-class TestUpdateTaskFieldFiltering:
 
-    def test_readonly_fields_filtered_out(
-        self, mock_client, existing_task_with_dates
-    ):
+class TestUpdateTaskFieldFiltering:
+    def test_readonly_fields_filtered_out(self, mock_client, existing_task_with_dates):
         """Fields like creator, deleted, kind, isFloating should not be sent to the API."""
         mock_client.get_by_id = MagicMock(return_value=existing_task_with_dates.copy())
 
@@ -189,7 +187,7 @@ class TestUpdateTaskFieldFiltering:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
 
@@ -201,9 +199,7 @@ class TestUpdateTaskFieldFiltering:
         assert "createdTime" not in sent_to_api
         assert "modifiedTime" not in sent_to_api
 
-    def test_updatable_fields_preserved(
-        self, mock_client, existing_task_with_dates
-    ):
+    def test_updatable_fields_preserved(self, mock_client, existing_task_with_dates):
         """All updatable fields from the existing task should be included."""
         mock_client.get_by_id = MagicMock(return_value=existing_task_with_dates.copy())
 
@@ -213,7 +209,7 @@ class TestUpdateTaskFieldFiltering:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
 
@@ -231,8 +227,8 @@ class TestUpdateTaskFieldFiltering:
 
 # --- Tests: Error handling ---
 
-class TestUpdateTaskErrorHandling:
 
+class TestUpdateTaskErrorHandling:
     def test_client_exception_returns_error(self, mock_client):
         """Exceptions from the client should be caught and returned as error responses."""
         mock_client.get_by_id = MagicMock(side_effect=Exception("Connection timeout"))
@@ -252,8 +248,8 @@ class TestUpdateTaskErrorHandling:
 
 # --- Tests: exclude_unset behavior ---
 
-class TestUpdateTaskExcludeUnset:
 
+class TestUpdateTaskExcludeUnset:
     def test_default_priority_not_sent_when_unset(self, mock_client):
         """TaskObject has priority=0 as default. If not explicitly set, it should not
         be included in update_fields and should not overwrite existing priority."""
@@ -272,7 +268,7 @@ class TestUpdateTaskExcludeUnset:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
         assert sent_to_api["priority"] == 5
@@ -293,7 +289,7 @@ class TestUpdateTaskExcludeUnset:
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(update_task(task_object=task_obj))
+            run(update_task(task_object=task_obj))
 
         sent_to_api = mock_client.task.update.call_args[0][0]
         assert sent_to_api["priority"] == 0

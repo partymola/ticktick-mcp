@@ -35,8 +35,8 @@ def main() -> None:
     # Loading config has side effects (parses sys.argv for --dotenv-dir,
     # reads the .env file, exits on missing config).
     from . import config  # noqa: F401
-
     from .mcp_instance import mcp
+
     # Tool modules register themselves with `mcp` at import time.
     from .tools import (  # noqa: F401
         completion_tools,

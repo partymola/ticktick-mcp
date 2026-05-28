@@ -8,17 +8,18 @@ ticktick_get_all.
 
 import asyncio
 import json
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from ticktick_mcp.tools.task_tools import (
-    ticktick_delete_tasks,
     ticktick_complete_task,
-    ticktick_move_task,
-    ticktick_make_subtask,
-    ticktick_get_tasks_from_project,
-    ticktick_get_by_id,
+    ticktick_delete_tasks,
     ticktick_get_all,
+    ticktick_get_by_id,
+    ticktick_get_tasks_from_project,
+    ticktick_make_subtask,
+    ticktick_move_task,
 )
 
 
@@ -37,8 +38,8 @@ def mock_client():
 # ticktick_delete_tasks                                        #
 # ============================================================ #
 
-class TestDeleteTasks:
 
+class TestDeleteTasks:
     def test_delete_single_task_by_id_string(self, mock_client):
         """A single task_id string should fetch one object and call delete with a single dict."""
         task_obj = {"id": "t1", "projectId": "p1", "title": "Task"}
@@ -128,7 +129,7 @@ class TestDeleteTasks:
         assert parsed["invalid_ids"] == ["x"]
 
     def test_partial_success_includes_warning_field(self, mock_client):
-        """A mix of valid + missing IDs deletes the valid ones and lists the missing ones in warnings."""
+        """Mix of valid + missing IDs deletes the valid ones; missing ones listed in warnings."""
         objs = {"t1": {"id": "t1", "projectId": "p1", "title": "A"}}
         mock_client.get_by_id = MagicMock(side_effect=lambda tid: objs.get(tid))
         mock_client.task.delete = MagicMock(return_value={"ok": True})
@@ -192,8 +193,8 @@ class TestDeleteTasks:
 # ticktick_complete_task                                       #
 # ============================================================ #
 
-class TestCompleteTask:
 
+class TestCompleteTask:
     def test_success_returns_refetched_task(self, mock_client):
         """Happy path: complete succeeds, refetch shows status != 0, returns refetched obj."""
         task_obj = {"id": "t1", "projectId": "p1", "status": 0}
@@ -294,8 +295,8 @@ class TestCompleteTask:
 # ticktick_move_task                                           #
 # ============================================================ #
 
-class TestMoveTask:
 
+class TestMoveTask:
     def test_move_success_returns_moved_task(self, mock_client):
         """Happy path: source task + target project both found, move returns updated obj."""
         task_obj = {"id": "t1", "projectId": "p1", "title": "Hi"}
@@ -389,8 +390,8 @@ class TestMoveTask:
 # ticktick_make_subtask                                        #
 # ============================================================ #
 
-class TestMakeSubtask:
 
+class TestMakeSubtask:
     def test_success_returns_success_payload(self, mock_client):
         """Happy path: both tasks in same project, make_subtask succeeds."""
         child = {"id": "c1", "projectId": "p1", "title": "child"}
@@ -493,8 +494,8 @@ class TestMakeSubtask:
 # ticktick_get_tasks_from_project                              #
 # ============================================================ #
 
-class TestGetTasksFromProject:
 
+class TestGetTasksFromProject:
     def test_returns_list_unchanged(self, mock_client):
         """A list response is returned as a list."""
         tasks = [{"id": "t1"}, {"id": "t2"}]
@@ -555,8 +556,8 @@ class TestGetTasksFromProject:
 # ticktick_get_by_id                                           #
 # ============================================================ #
 
-class TestGetById:
 
+class TestGetById:
     def test_success_returns_object(self, mock_client):
         obj = {"id": "x1", "title": "Task"}
         mock_client.get_by_id = MagicMock(return_value=obj)
@@ -588,8 +589,8 @@ class TestGetById:
 # ticktick_get_all                                             #
 # ============================================================ #
 
-class TestGetAll:
 
+class TestGetAll:
     def test_tasks_search_calls_get_all_tasks(self, mock_client):
         """search='tasks' should invoke _get_all_tasks_from_ticktick."""
         mock_client.sync = MagicMock()
@@ -597,13 +598,16 @@ class TestGetAll:
         mock_client.inbox_id = "inbox123"
 
         fake_tasks = [{"id": "t1"}, {"id": "t2"}]
-        with patch(
-            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
-            return_value=mock_client,
-        ), patch(
-            "ticktick_mcp.tools.task_tools._get_all_tasks_from_ticktick",
-            return_value=fake_tasks,
-        ) as mock_getter:
+        with (
+            patch(
+                "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "ticktick_mcp.tools.task_tools._get_all_tasks_from_ticktick",
+                return_value=fake_tasks,
+            ) as mock_getter,
+        ):
             result = run(ticktick_get_all(search="tasks"))
 
         mock_getter.assert_called_once()

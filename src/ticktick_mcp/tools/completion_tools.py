@@ -13,10 +13,10 @@ from typing import Optional
 
 from tzlocal import get_localzone
 
-from ..mcp_instance import mcp
+from ..completion_db import get_processed_ids_for_project, init_db, is_processed, mark_processed
 from ..helpers import format_response, require_ticktick_client
-from ..completion_db import init_db, is_processed, mark_processed, get_processed_ids_for_project
-from ..tools.filter_tools import TaskFilterer, PeriodFilter, PropertyFilter
+from ..mcp_instance import mcp
+from ..tools.filter_tools import PeriodFilter, PropertyFilter, TaskFilterer
 
 
 @mcp.tool()
@@ -77,7 +77,12 @@ async def ticktick_get_unprocessed_completions(
             tz_info=tz,
         )
     except Exception as e:
-        logging.error("Failed to fetch completions for project %s: %s", project_id, e, exc_info=True)
+        logging.error(
+            "Failed to fetch completions for project %s: %s",
+            project_id,
+            e,
+            exc_info=True,
+        )
         return format_response({"error": str(e), "status": "error"})
 
     already_processed = get_processed_ids_for_project(project_id)
@@ -85,7 +90,10 @@ async def ticktick_get_unprocessed_completions(
 
     logging.info(
         "project %s: %d completed in last %d days, %d unprocessed",
-        project_id, len(all_completed), days, len(unprocessed),
+        project_id,
+        len(all_completed),
+        days,
+        len(unprocessed),
     )
     return format_response(unprocessed)
 

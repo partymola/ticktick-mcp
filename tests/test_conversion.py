@@ -5,8 +5,7 @@ Covers ticktick_convert_datetime_to_ticktick_format.
 
 import asyncio
 import json
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from ticktick_mcp.tools.conversion_tools import (
     ticktick_convert_datetime_to_ticktick_format,
@@ -18,17 +17,18 @@ def run(coro):
 
 
 class TestConvertDatetime:
-
     def test_valid_iso_with_timezone(self):
         """A normal ISO datetime + valid tz returns a JSON with 'ticktick_format'."""
         with patch(
             "ticktick_mcp.tools.conversion_tools.convert_date_to_tick_tick_format",
             return_value="2024-07-26T18:00:00.000+0900",
         ) as mock_conv:
-            result = run(ticktick_convert_datetime_to_ticktick_format(
-                datetime_iso_string="2024-07-26T18:00:00",
-                tz="Asia/Seoul",
-            ))
+            result = run(
+                ticktick_convert_datetime_to_ticktick_format(
+                    datetime_iso_string="2024-07-26T18:00:00",
+                    tz="Asia/Seoul",
+                )
+            )
 
         parsed = json.loads(result)
         assert parsed == {"ticktick_format": "2024-07-26T18:00:00.000+0900"}
@@ -42,10 +42,12 @@ class TestConvertDatetime:
             "ticktick_mcp.tools.conversion_tools.convert_date_to_tick_tick_format",
             return_value="2024-08-15T00:00:00.000+0900",
         ):
-            result = run(ticktick_convert_datetime_to_ticktick_format(
-                datetime_iso_string="2024-08-15",
-                tz="Asia/Seoul",
-            ))
+            result = run(
+                ticktick_convert_datetime_to_ticktick_format(
+                    datetime_iso_string="2024-08-15",
+                    tz="Asia/Seoul",
+                )
+            )
 
         parsed = json.loads(result)
         assert "ticktick_format" in parsed
@@ -57,20 +59,24 @@ class TestConvertDatetime:
             "ticktick_mcp.tools.conversion_tools.convert_date_to_tick_tick_format",
             return_value="2024-07-26T18:00:00.000+0200",
         ):
-            result = run(ticktick_convert_datetime_to_ticktick_format(
-                datetime_iso_string="2024-07-26T18:00:00+02:00",
-                tz="Europe/Paris",
-            ))
+            result = run(
+                ticktick_convert_datetime_to_ticktick_format(
+                    datetime_iso_string="2024-07-26T18:00:00+02:00",
+                    tz="Europe/Paris",
+                )
+            )
 
         parsed = json.loads(result)
         assert parsed["ticktick_format"] == "2024-07-26T18:00:00.000+0200"
 
     def test_invalid_iso_string_returns_error(self):
         """An unparseable ISO string returns an error JSON."""
-        result = run(ticktick_convert_datetime_to_ticktick_format(
-            datetime_iso_string="not-a-date",
-            tz="Europe/London",
-        ))
+        result = run(
+            ticktick_convert_datetime_to_ticktick_format(
+                datetime_iso_string="not-a-date",
+                tz="Europe/London",
+            )
+        )
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -78,10 +84,12 @@ class TestConvertDatetime:
 
     def test_empty_string_returns_error(self):
         """Empty input string returns an error JSON."""
-        result = run(ticktick_convert_datetime_to_ticktick_format(
-            datetime_iso_string="",
-            tz="Europe/London",
-        ))
+        result = run(
+            ticktick_convert_datetime_to_ticktick_format(
+                datetime_iso_string="",
+                tz="Europe/London",
+            )
+        )
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -98,10 +106,12 @@ class TestConvertDatetime:
             "ticktick_mcp.tools.conversion_tools.convert_date_to_tick_tick_format",
             side_effect=ValueError("Unknown timezone"),
         ):
-            result = run(ticktick_convert_datetime_to_ticktick_format(
-                datetime_iso_string="2024-07-26T18:00:00",
-                tz="Not/A/Zone",
-            ))
+            result = run(
+                ticktick_convert_datetime_to_ticktick_format(
+                    datetime_iso_string="2024-07-26T18:00:00",
+                    tz="Not/A/Zone",
+                )
+            )
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -113,10 +123,12 @@ class TestConvertDatetime:
             "ticktick_mcp.tools.conversion_tools.convert_date_to_tick_tick_format",
             side_effect=RuntimeError("something else"),
         ):
-            result = run(ticktick_convert_datetime_to_ticktick_format(
-                datetime_iso_string="2024-07-26T18:00:00",
-                tz="Europe/London",
-            ))
+            result = run(
+                ticktick_convert_datetime_to_ticktick_format(
+                    datetime_iso_string="2024-07-26T18:00:00",
+                    tz="Europe/London",
+                )
+            )
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -130,17 +142,21 @@ class TestConvertDatetime:
             "ticktick_mcp.tools.conversion_tools.convert_date_to_tick_tick_format",
             return_value="x",
         ):
-            result = run(ticktick_convert_datetime_to_ticktick_format(
-                datetime_iso_string="2024-01-01",
-                tz="UTC",
-            ))
+            result = run(
+                ticktick_convert_datetime_to_ticktick_format(
+                    datetime_iso_string="2024-01-01",
+                    tz="UTC",
+                )
+            )
         json.loads(result)  # must not raise
 
         # Error path
-        result_err = run(ticktick_convert_datetime_to_ticktick_format(
-            datetime_iso_string="bogus",
-            tz="UTC",
-        ))
+        result_err = run(
+            ticktick_convert_datetime_to_ticktick_format(
+                datetime_iso_string="bogus",
+                tz="UTC",
+            )
+        )
         json.loads(result_err)  # must not raise
 
 
@@ -150,10 +166,12 @@ class TestConvertDatetimeRealLibrary:
     def test_real_conversion_returns_ticktick_format(self):
         """Without mocking the underlying converter, output should follow
         TickTick's format: 'YYYY-MM-DDTHH:mm:ss+ZZZZ' (UTC-shifted)."""
-        result = run(ticktick_convert_datetime_to_ticktick_format(
-            datetime_iso_string="2024-07-26T18:00:00",
-            tz="Europe/London",
-        ))
+        result = run(
+            ticktick_convert_datetime_to_ticktick_format(
+                datetime_iso_string="2024-07-26T18:00:00",
+                tz="Europe/London",
+            )
+        )
 
         parsed = json.loads(result)
         assert "ticktick_format" in parsed
@@ -163,10 +181,12 @@ class TestConvertDatetimeRealLibrary:
     def test_real_unknown_timezone_returns_error(self):
         """An unknown IANA tz triggers UnknownTimeZoneError (a KeyError subclass)
         which goes through the generic except branch and is reported as an error."""
-        result = run(ticktick_convert_datetime_to_ticktick_format(
-            datetime_iso_string="2024-07-26T18:00:00",
-            tz="Made/Up/Zone",
-        ))
+        result = run(
+            ticktick_convert_datetime_to_ticktick_format(
+                datetime_iso_string="2024-07-26T18:00:00",
+                tz="Made/Up/Zone",
+            )
+        )
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"
@@ -177,10 +197,12 @@ class TestConvertDatetimeRealLibrary:
 
     def test_real_invalid_iso_returns_value_error_branch(self):
         """A genuinely invalid ISO string is a ValueError from fromisoformat()."""
-        result = run(ticktick_convert_datetime_to_ticktick_format(
-            datetime_iso_string="2024-13-99",
-            tz="Europe/London",
-        ))
+        result = run(
+            ticktick_convert_datetime_to_ticktick_format(
+                datetime_iso_string="2024-13-99",
+                tz="Europe/London",
+            )
+        )
 
         parsed = json.loads(result)
         assert parsed["status"] == "error"

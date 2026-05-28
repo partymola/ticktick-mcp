@@ -2,12 +2,11 @@
 
 import asyncio
 import json
-import pytest
-from pathlib import Path
-from unittest.mock import patch
 
+import pytest
 
 # --- Helpers ---
+
 
 def run(coro):
     """Run an async coroutine synchronously."""
@@ -15,6 +14,7 @@ def run(coro):
 
 
 # --- Fixtures ---
+
 
 @pytest.fixture(autouse=True)
 def isolated_db(tmp_path):
@@ -35,10 +35,10 @@ def isolated_db(tmp_path):
 # completion_db.py unit tests
 # =============================================================================
 
-class TestInitDb:
 
+class TestInitDb:
     def test_creates_table(self, isolated_db):
-        from ticktick_mcp.completion_db import init_db, _connect
+        from ticktick_mcp.completion_db import _connect, init_db
 
         init_db()
 
@@ -57,7 +57,6 @@ class TestInitDb:
 
 
 class TestIsProcessed:
-
     def test_returns_false_for_unknown_task(self, isolated_db):
         from ticktick_mcp.completion_db import init_db, is_processed
 
@@ -73,9 +72,8 @@ class TestIsProcessed:
 
 
 class TestMarkProcessed:
-
     def test_inserts_row(self, isolated_db):
-        from ticktick_mcp.completion_db import init_db, mark_processed, _connect
+        from ticktick_mcp.completion_db import _connect, init_db, mark_processed
 
         init_db()
         mark_processed("task1", "proj1", "My task", "2025-06-01T10:00:00Z", notes="done")
@@ -94,7 +92,7 @@ class TestMarkProcessed:
 
     def test_duplicate_is_silent(self, isolated_db):
         """Inserting the same task_id twice should not raise - second call is a no-op."""
-        from ticktick_mcp.completion_db import init_db, mark_processed, _connect
+        from ticktick_mcp.completion_db import _connect, init_db, mark_processed
 
         init_db()
         mark_processed("task1", "proj1", "First title", None)
@@ -109,7 +107,7 @@ class TestMarkProcessed:
         assert rows[0]["title"] == "First title"  # original preserved
 
     def test_optional_fields_accept_none(self, isolated_db):
-        from ticktick_mcp.completion_db import init_db, mark_processed, _connect
+        from ticktick_mcp.completion_db import _connect, init_db, mark_processed
 
         init_db()
         mark_processed("task2", "proj1", None, None, None)
@@ -126,16 +124,19 @@ class TestMarkProcessed:
 
 
 class TestGetProcessedIdsForProject:
-
     def test_returns_empty_set_for_unknown_project(self, isolated_db):
-        from ticktick_mcp.completion_db import init_db, get_processed_ids_for_project
+        from ticktick_mcp.completion_db import get_processed_ids_for_project, init_db
 
         init_db()
         result = get_processed_ids_for_project("proj_unknown")
         assert result == set()
 
     def test_returns_only_ids_for_given_project(self, isolated_db):
-        from ticktick_mcp.completion_db import init_db, mark_processed, get_processed_ids_for_project
+        from ticktick_mcp.completion_db import (
+            get_processed_ids_for_project,
+            init_db,
+            mark_processed,
+        )
 
         init_db()
         mark_processed("task1", "projA", "Task 1", None)
@@ -149,7 +150,11 @@ class TestGetProcessedIdsForProject:
         assert result_b == {"task3"}
 
     def test_returns_set_type(self, isolated_db):
-        from ticktick_mcp.completion_db import init_db, mark_processed, get_processed_ids_for_project
+        from ticktick_mcp.completion_db import (
+            get_processed_ids_for_project,
+            init_db,
+            mark_processed,
+        )
 
         init_db()
         mark_processed("task1", "projA", None, None)
@@ -162,18 +167,20 @@ class TestGetProcessedIdsForProject:
 # ticktick_mark_completion_processed MCP tool tests
 # =============================================================================
 
-class TestMarkCompletionProcessedTool:
 
+class TestMarkCompletionProcessedTool:
     def test_returns_ok_on_first_call(self, isolated_db):
         from ticktick_mcp.tools.completion_tools import ticktick_mark_completion_processed
 
-        result = run(ticktick_mark_completion_processed(
-            task_id="task1",
-            project_id="projA",
-            title="Fix the tap",
-            completed_time="2025-06-01T10:00:00Z",
-            notes="resolved",
-        ))
+        result = run(
+            ticktick_mark_completion_processed(
+                task_id="task1",
+                project_id="projA",
+                title="Fix the tap",
+                completed_time="2025-06-01T10:00:00Z",
+                notes="resolved",
+            )
+        )
 
         data = json.loads(result)
         assert data["status"] == "ok"
@@ -182,14 +189,18 @@ class TestMarkCompletionProcessedTool:
     def test_returns_already_processed_on_second_call(self, isolated_db):
         from ticktick_mcp.tools.completion_tools import ticktick_mark_completion_processed
 
-        run(ticktick_mark_completion_processed(
-            task_id="task1",
-            project_id="projA",
-        ))
-        result = run(ticktick_mark_completion_processed(
-            task_id="task1",
-            project_id="projA",
-        ))
+        run(
+            ticktick_mark_completion_processed(
+                task_id="task1",
+                project_id="projA",
+            )
+        )
+        result = run(
+            ticktick_mark_completion_processed(
+                task_id="task1",
+                project_id="projA",
+            )
+        )
 
         data = json.loads(result)
         assert data["status"] == "already_processed"
@@ -198,22 +209,26 @@ class TestMarkCompletionProcessedTool:
     def test_minimal_call_no_optional_fields(self, isolated_db):
         from ticktick_mcp.tools.completion_tools import ticktick_mark_completion_processed
 
-        result = run(ticktick_mark_completion_processed(
-            task_id="task2",
-            project_id="projB",
-        ))
+        result = run(
+            ticktick_mark_completion_processed(
+                task_id="task2",
+                project_id="projB",
+            )
+        )
 
         data = json.loads(result)
         assert data["status"] == "ok"
 
     def test_persists_to_db(self, isolated_db):
         """After a successful tool call, is_processed should return True."""
-        from ticktick_mcp.tools.completion_tools import ticktick_mark_completion_processed
         from ticktick_mcp.completion_db import is_processed
+        from ticktick_mcp.tools.completion_tools import ticktick_mark_completion_processed
 
-        run(ticktick_mark_completion_processed(
-            task_id="task3",
-            project_id="projC",
-        ))
+        run(
+            ticktick_mark_completion_processed(
+                task_id="task3",
+                project_id="projC",
+            )
+        )
 
         assert is_processed("task3") is True

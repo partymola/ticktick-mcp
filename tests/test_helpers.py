@@ -14,8 +14,9 @@ import datetime
 import importlib
 import json
 import logging
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 import ticktick_mcp.helpers as helpers_module
 
@@ -29,11 +30,10 @@ _real_require_ticktick_client = helpers_module.require_ticktick_client
 helpers_module.require_ticktick_client = _saved_noop_decorator
 
 # Pull in everything else after reload settles
-from ticktick_mcp.helpers import (
-    format_response,
+from ticktick_mcp.helpers import (  # noqa: E402
     _get_all_tasks_from_ticktick,
     _parse_due_date,
-    ToolLogicError,
+    format_response,
 )
 
 
@@ -45,8 +45,8 @@ def run(coro):
 # format_response                                              #
 # ============================================================ #
 
-class TestFormatResponseDict:
 
+class TestFormatResponseDict:
     def test_dict_returns_indent2_json(self):
         out = format_response({"a": 1, "b": "two"})
         # json.dumps(..., indent=2) puts each key on its own line
@@ -69,7 +69,6 @@ class TestFormatResponseDict:
 
 
 class TestFormatResponseList:
-
     def test_list_returns_json_array(self):
         out = format_response([1, 2, 3])
         parsed = json.loads(out)
@@ -87,7 +86,6 @@ class TestFormatResponseList:
 
 
 class TestFormatResponseScalar:
-
     def test_none_returns_null(self):
         """None is serialised to the JSON literal 'null'."""
         assert format_response(None) == "null"
@@ -111,10 +109,10 @@ class TestFormatResponseScalar:
 
 
 class TestFormatResponseError:
-
     def test_non_serializable_dict_returns_error(self):
         """A dict containing non-string non-coercible keys triggers TypeError;
         format_response should catch it and return an error dict."""
+
         class BadKey:
             def __hash__(self):
                 return 1
@@ -133,8 +131,8 @@ class TestFormatResponseError:
 # require_ticktick_client decorator                            #
 # ============================================================ #
 
-class TestRequireTickTickClient:
 
+class TestRequireTickTickClient:
     def test_client_none_returns_error_json(self):
         """When the singleton has no client, the decorator short-circuits and
         returns a JSON error string without invoking the wrapped function."""
@@ -158,6 +156,7 @@ class TestRequireTickTickClient:
 
     def test_client_present_calls_through(self):
         """When the client is available, the wrapped function is called."""
+
         @_real_require_ticktick_client
         async def fake_tool(x):
             return f"ok-{x}"
@@ -188,8 +187,8 @@ class TestRequireTickTickClient:
 # _get_all_tasks_from_ticktick                                 #
 # ============================================================ #
 
-class TestGetAllTasksFromTickTick:
 
+class TestGetAllTasksFromTickTick:
     def test_client_none_raises_connection_error(self):
         with patch(
             "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
@@ -255,10 +254,13 @@ class TestGetAllTasksFromTickTick:
         client.inbox_id = None
         client.task.get_from_project = MagicMock(return_value="unexpected")
 
-        with patch(
-            "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
-            return_value=client,
-        ), caplog.at_level(logging.WARNING):
+        with (
+            patch(
+                "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
+                return_value=client,
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
             result = _get_all_tasks_from_ticktick()
 
         assert result == []
@@ -312,13 +314,18 @@ class TestGetAllTasksFromTickTick:
         client = MagicMock()
         client.state = {"projects": [{"id": "p1"}]}
         # Make inbox_id access raise on attribute read
-        type(client).inbox_id = property(lambda self: (_ for _ in ()).throw(Exception("inbox broken")))
+        type(client).inbox_id = property(
+            lambda self: (_ for _ in ()).throw(Exception("inbox broken"))
+        )
         client.task.get_from_project = MagicMock(return_value=[{"id": "t1"}])
 
-        with patch(
-            "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
-            return_value=client,
-        ), caplog.at_level(logging.ERROR):
+        with (
+            patch(
+                "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
+                return_value=client,
+            ),
+            caplog.at_level(logging.ERROR),
+        ):
             result = _get_all_tasks_from_ticktick()
 
         # state['projects'] still gave us p1
@@ -332,8 +339,8 @@ class TestGetAllTasksFromTickTick:
 # _parse_due_date                                              #
 # ============================================================ #
 
-class TestParseDueDate:
 
+class TestParseDueDate:
     def test_none_returns_none(self):
         assert _parse_due_date(None) is None
 

@@ -79,8 +79,6 @@ async def ticktick_convert_datetime_to_ticktick_format(
             }
         )
     except Exception as exc:
-        return format_response(
-            {"error": f"Conversion failed: {exc}", "status": "error"}
-        )
+        return format_response({"error": f"Conversion failed: {exc}", "status": "error"})
 
     return format_response({"ticktick_format": formatted})

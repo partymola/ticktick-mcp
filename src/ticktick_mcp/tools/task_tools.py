@@ -21,11 +21,11 @@ raises before any API call.
 import datetime
 import logging
 from typing import Any, List, Optional, Union
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 from ticktick.helpers.time_methods import convert_date_to_tick_tick_format
 from tzlocal import get_localzone
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..client import TickTickClientSingleton
 from ..helpers import (
@@ -188,9 +188,7 @@ def _validate_day_of_week(
         return
 
     if not isinstance(expected_day, str):
-        raise ToolLogicError(
-            f"Invalid expectedDayOfWeek for {field_name}: must be a string"
-        )
+        raise ToolLogicError(f"Invalid expectedDayOfWeek for {field_name}: must be a string")
 
     normalised = expected_day.strip()
     if normalised.lower() not in _DAY_NAMES_LOWER:
@@ -206,9 +204,7 @@ def _validate_day_of_week(
         try:
             dt = datetime.datetime.fromisoformat(cleaned)
         except ValueError as exc:
-            raise ToolLogicError(
-                f"Cannot parse {field_name} for day-of-week check: {exc}"
-            ) from exc
+            raise ToolLogicError(f"Cannot parse {field_name} for day-of-week check: {exc}") from exc
     else:
         raise ToolLogicError(
             f"Cannot interpret {field_name} value of type {type(date_value).__name__}"
@@ -378,13 +374,9 @@ async def ticktick_create_task(
 
         # --- Re-populate fields the builder may have dropped ---
         if start_dt is not None and not task_dict.get("startDate"):
-            task_dict["startDate"] = convert_date_to_tick_tick_format(
-                start_dt, tz_for_dates
-            )
+            task_dict["startDate"] = convert_date_to_tick_tick_format(start_dt, tz_for_dates)
         if due_dt is not None and not task_dict.get("dueDate"):
-            task_dict["dueDate"] = convert_date_to_tick_tick_format(
-                due_dt, tz_for_dates
-            )
+            task_dict["dueDate"] = convert_date_to_tick_tick_format(due_dt, tz_for_dates)
         if reminders is not None and "reminders" not in task_dict:
             task_dict["reminders"] = reminders
         if priority is not None and "priority" not in task_dict:
@@ -396,10 +388,7 @@ async def ticktick_create_task(
 
         warnings = list(verify_mutation("create", task_dict, created or {}))
         if dueDate is None:
-            warnings.append(
-                "No dueDate set: TickTick will not trigger reminders for "
-                "this task."
-            )
+            warnings.append("No dueDate set: TickTick will not trigger reminders for this task.")
 
         result = dict(created) if isinstance(created, dict) else {"result": created}
         if warnings:
@@ -465,9 +454,7 @@ async def update_task(task_object: TaskObject) -> str:
             task_object = TaskObject(**task_object)
 
         if not task_object.id:
-            return format_response(
-                {"error": "task_object.id is required", "status": "error"}
-            )
+            return format_response({"error": "task_object.id is required", "status": "error"})
 
         client = TickTickClientSingleton.get_client()
 
@@ -574,9 +561,7 @@ async def ticktick_delete_tasks(
             ids = list(task_ids or [])
 
         if not ids:
-            return format_response(
-                {"status": "error", "message": "No task IDs provided."}
-            )
+            return format_response({"status": "error", "message": "No task IDs provided."})
 
         tasks_to_delete: list = []
         deleted_ids: list[str] = []
@@ -967,10 +952,7 @@ async def ticktick_get_all(search: str) -> str:
 
         return format_response(
             {
-                "error": (
-                    f"Invalid search type {search!r}. "
-                    "Use 'tasks', 'projects', or 'tags'."
-                ),
+                "error": (f"Invalid search type {search!r}. Use 'tasks', 'projects', or 'tags'."),
                 "status": "error",
             }
         )

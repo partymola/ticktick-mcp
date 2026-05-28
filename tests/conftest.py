@@ -7,8 +7,8 @@ test module imports task_tools.
 
 import sys
 import types
-from unittest.mock import MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock
 
 # Patch sys.argv before any ticktick_mcp module is imported
 sys.argv = ["pytest", "--dotenv-dir", "/tmp/ticktick-mcp-test"]
@@ -46,5 +46,6 @@ fake_mcp_module.mcp = mock_mcp
 sys.modules["ticktick_mcp.mcp_instance"] = fake_mcp_module
 
 # Mock the require_ticktick_client decorator to be a no-op
-import ticktick_mcp.helpers as helpers_module
+import ticktick_mcp.helpers as helpers_module  # noqa: E402
+
 helpers_module.require_ticktick_client = lambda f: f

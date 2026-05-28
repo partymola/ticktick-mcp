@@ -80,8 +80,6 @@ dotenv_dir_path: Path = _load_env()
 
 CLIENT_ID: str = os.environ.get("TICKTICK_CLIENT_ID", "")
 CLIENT_SECRET: str = os.environ.get("TICKTICK_CLIENT_SECRET", "")
-REDIRECT_URI: str = os.environ.get(
-    "TICKTICK_REDIRECT_URI", "http://localhost:8080/redirect"
-)
+REDIRECT_URI: str = os.environ.get("TICKTICK_REDIRECT_URI", "http://localhost:8080/redirect")
 USERNAME: str = os.environ.get("TICKTICK_USERNAME", "")
 PASSWORD: str = os.environ.get("TICKTICK_PASSWORD", "")

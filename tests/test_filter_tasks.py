@@ -55,9 +55,7 @@ class TestPeriodFilterValidator:
         """Validator can't see ``tz`` (pydantic field-order issue), so a
         ``tz`` param does NOT change the no-tz-param result."""
         without = PeriodFilter(start_date="2024-08-01T09:00:00+00:00")
-        with_tz = PeriodFilter(
-            start_date="2024-08-01T09:00:00+00:00", tz=ZoneInfo("Europe/London")
-        )
+        with_tz = PeriodFilter(start_date="2024-08-01T09:00:00+00:00", tz=ZoneInfo("Europe/London"))
         assert with_tz.start_date == without.start_date
         assert with_tz.start_date.tzinfo is None
 
@@ -66,18 +64,14 @@ class TestPeriodFilterValidator:
         the parsed naive datetime is returned verbatim. Also ``ZoneInfo``
         has no ``.localize`` method, so even if the branch did run it
         would AttributeError and fall through to ``return None``."""
-        pf = PeriodFilter(
-            start_date="2024-08-01T09:00:00", tz=ZoneInfo("Europe/London")
-        )
+        pf = PeriodFilter(start_date="2024-08-01T09:00:00", tz=ZoneInfo("Europe/London"))
         assert pf.start_date is not None
         assert pf.start_date.tzinfo is None
         assert pf.start_date.hour == 9
 
     def test_date_only_with_tz_param_returns_naive_due_to_known_bug(self):
         """Same root cause as test_naive_string_with_tz_param_returns_naive..."""
-        pf = PeriodFilter(
-            start_date="2024-08-01", tz=ZoneInfo("Europe/London")
-        )
+        pf = PeriodFilter(start_date="2024-08-01", tz=ZoneInfo("Europe/London"))
         assert pf.start_date is not None
         assert pf.start_date.tzinfo is None
         assert pf.start_date.hour == 0
@@ -363,27 +357,33 @@ class TestPropertyFilterMatches:
         assert pf.matches({"status": 0, "completedTime": "2099-12-31T00:00:00+0000"}) is True
 
     def test_all_filters_pass(self):
-        pf = PropertyFilter(
-            status="uncompleted", project_id="p1", tag_label="work", priority=5
+        pf = PropertyFilter(status="uncompleted", project_id="p1", tag_label="work", priority=5)
+        assert (
+            pf.matches(
+                {
+                    "status": 0,
+                    "projectId": "p1",
+                    "tags": ["work"],
+                    "priority": 5,
+                }
+            )
+            is True
         )
-        assert pf.matches({
-            "status": 0,
-            "projectId": "p1",
-            "tags": ["work"],
-            "priority": 5,
-        }) is True
 
     def test_one_filter_fails_whole_returns_false(self):
-        pf = PropertyFilter(
-            status="uncompleted", project_id="p1", tag_label="work", priority=5
-        )
+        pf = PropertyFilter(status="uncompleted", project_id="p1", tag_label="work", priority=5)
         # Same task as above but priority differs:
-        assert pf.matches({
-            "status": 0,
-            "projectId": "p1",
-            "tags": ["work"],
-            "priority": 3,
-        }) is False
+        assert (
+            pf.matches(
+                {
+                    "status": 0,
+                    "projectId": "p1",
+                    "tags": ["work"],
+                    "priority": 3,
+                }
+            )
+            is False
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -402,9 +402,7 @@ class TestFetchTasksByStatus:
     def test_completed_empty_filter_returns_empty(self):
         """An empty PeriodFilter (no dates) is treated like no filter."""
         filterer = TaskFilterer()
-        result = run(filterer._fetch_tasks_by_status(
-            "completed", PeriodFilter(), None
-        ))
+        result = run(filterer._fetch_tasks_by_status("completed", PeriodFilter(), None))
         assert result == []
 
     def test_completed_with_start_calls_api_with_datetimes(self):
@@ -447,10 +445,12 @@ class TestFetchTasksByStatus:
         """API may filter only by day; the code re-applies the filter to
         trim out anything outside the precise window."""
         mock_client = MagicMock()
-        mock_client.task.get_completed = MagicMock(return_value=[
-            {"id": "in_window", "status": 2, "completedTime": "2024-08-15T10:00:00+0000"},
-            {"id": "outside", "status": 2, "completedTime": "2024-09-15T10:00:00+0000"},
-        ])
+        mock_client.task.get_completed = MagicMock(
+            return_value=[
+                {"id": "in_window", "status": 2, "completedTime": "2024-08-15T10:00:00+0000"},
+                {"id": "outside", "status": 2, "completedTime": "2024-09-15T10:00:00+0000"},
+            ]
+        )
 
         filterer = TaskFilterer()
         pf = PeriodFilter(start_date="2024-08-01", end_date="2024-08-31")
@@ -580,9 +580,11 @@ class TestTaskFiltererFilter:
         (not due_date_filter) to the fetcher."""
         filterer = TaskFilterer()
         mock_client = MagicMock()
-        mock_client.task.get_completed = MagicMock(return_value=[
-            {"id": "c1", "status": 2, "completedTime": "2024-08-15T10:00:00+0000"},
-        ])
+        mock_client.task.get_completed = MagicMock(
+            return_value=[
+                {"id": "c1", "status": 2, "completedTime": "2024-08-15T10:00:00+0000"},
+            ]
+        )
         pf = PropertyFilter(
             status="completed",
             completion_date_filter=PeriodFilter(start_date="2024-08-01", end_date="2024-08-31"),
@@ -606,20 +608,20 @@ class TestBuildPropertyFilter:
     """Behaviour of _build_property_filter (criteria -> filter objects)."""
 
     def test_accepts_dict_input(self):
-        pf, tz, sort = _build_property_filter({
-            "status": "uncompleted",
-            "tag_label": "work",
-            "priority": 5,
-        })
+        pf, tz, sort = _build_property_filter(
+            {
+                "status": "uncompleted",
+                "tag_label": "work",
+                "priority": 5,
+            }
+        )
         assert pf.status == "uncompleted"
         assert pf.tag_label == "work"
         assert pf.priority == 5
         assert sort is False
 
     def test_accepts_json_string_input(self):
-        pf, tz, sort = _build_property_filter(
-            '{"status": "completed", "project_id": "p1"}'
-        )
+        pf, tz, sort = _build_property_filter('{"status": "completed", "project_id": "p1"}')
         assert pf.status == "completed"
         assert pf.project_id == "p1"
 
@@ -668,35 +670,41 @@ class TestBuildPropertyFilter:
         assert pf.completion_date_filter.tz is None
 
     def test_due_dates_built_into_period_filter(self):
-        pf, _, _ = _build_property_filter({
-            "due_start_date": "2024-08-01",
-            "due_end_date": "2024-08-31",
-        })
+        pf, _, _ = _build_property_filter(
+            {
+                "due_start_date": "2024-08-01",
+                "due_end_date": "2024-08-31",
+            }
+        )
         assert pf.due_date_filter.start_date is not None
         assert pf.due_date_filter.end_date is not None
         assert pf.due_date_filter.start_date.day == 1
         assert pf.due_date_filter.end_date.day == 31
 
     def test_completion_dates_built_into_period_filter(self):
-        pf, _, _ = _build_property_filter({
-            "status": "completed",
-            "completion_start_date": "2024-08-01",
-            "completion_end_date": "2024-08-31",
-        })
+        pf, _, _ = _build_property_filter(
+            {
+                "status": "completed",
+                "completion_start_date": "2024-08-01",
+                "completion_end_date": "2024-08-31",
+            }
+        )
         assert pf.completion_date_filter.start_date is not None
         assert pf.completion_date_filter.end_date is not None
 
     def test_all_fields_passed_through(self):
-        pf, tz, sort = _build_property_filter({
-            "status": "uncompleted",
-            "project_id": "p1",
-            "tag_label": "work",
-            "priority": 3,
-            "due_start_date": "2024-08-01",
-            "due_end_date": "2024-08-31",
-            "tz": "America/New_York",
-            "sort_by_priority": True,
-        })
+        pf, tz, sort = _build_property_filter(
+            {
+                "status": "uncompleted",
+                "project_id": "p1",
+                "tag_label": "work",
+                "priority": 3,
+                "due_start_date": "2024-08-01",
+                "due_end_date": "2024-08-31",
+                "tz": "America/New_York",
+                "sort_by_priority": True,
+            }
+        )
         assert pf.status == "uncompleted"
         assert pf.project_id == "p1"
         assert pf.tag_label == "work"
@@ -719,12 +727,15 @@ class TestTickTickFilterTasksEntryPoint:
             {"id": "t1", "title": "T1", "status": 0, "priority": 5},
             {"id": "t2", "title": "T2", "status": 0, "priority": 1},
         ]
-        with patch(
-            "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
-            return_value=mock_client,
-        ), patch(
-            "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
-            return_value=fake_tasks,
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                return_value=fake_tasks,
+            ),
         ):
             result = run(ticktick_filter_tasks({"status": "uncompleted"}))
 
@@ -757,12 +768,15 @@ class TestTickTickFilterTasksEntryPoint:
         assert "Invalid JSON" in parsed["error"]
 
     def test_connection_error_returns_json_error_dict(self):
-        with patch(
-            "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
-            return_value=MagicMock(),
-        ), patch(
-            "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
-            side_effect=ConnectionError("client gone"),
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                side_effect=ConnectionError("client gone"),
+            ),
         ):
             result = run(ticktick_filter_tasks({"status": "uncompleted"}))
 
@@ -773,12 +787,15 @@ class TestTickTickFilterTasksEntryPoint:
     def test_unexpected_exception_returns_json_error_dict(self):
         """A non-ValueError, non-ConnectionError exception is caught by the
         outermost except and wrapped with 'unexpected error' prefix."""
-        with patch(
-            "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
-            return_value=MagicMock(),
-        ), patch(
-            "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
-            side_effect=RuntimeError("something weird"),
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                side_effect=RuntimeError("something weird"),
+            ),
         ):
             result = run(ticktick_filter_tasks({"status": "uncompleted"}))
 
@@ -793,17 +810,24 @@ class TestTickTickFilterTasksEntryPoint:
             {"id": "high", "status": 0, "priority": 5},
             {"id": "med", "status": 0, "priority": 3},
         ]
-        with patch(
-            "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
-            return_value=mock_client,
-        ), patch(
-            "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
-            return_value=fake_tasks,
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                return_value=fake_tasks,
+            ),
         ):
-            result = run(ticktick_filter_tasks({
-                "status": "uncompleted",
-                "sort_by_priority": True,
-            }))
+            result = run(
+                ticktick_filter_tasks(
+                    {
+                        "status": "uncompleted",
+                        "sort_by_priority": True,
+                    }
+                )
+            )
 
         parsed = json.loads(result)
         assert [t["id"] for t in parsed] == ["high", "med", "low"]
@@ -821,18 +845,24 @@ class TestTickTickFilterTasksEntryPoint:
 
     def test_completed_with_dates_calls_get_completed(self):
         mock_client = MagicMock()
-        mock_client.task.get_completed = MagicMock(return_value=[
-            {"id": "c1", "status": 2, "completedTime": "2024-08-15T10:00:00+0000"},
-        ])
+        mock_client.task.get_completed = MagicMock(
+            return_value=[
+                {"id": "c1", "status": 2, "completedTime": "2024-08-15T10:00:00+0000"},
+            ]
+        )
         with patch(
             "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(ticktick_filter_tasks({
-                "status": "completed",
-                "completion_start_date": "2024-08-01",
-                "completion_end_date": "2024-08-31",
-            }))
+            result = run(
+                ticktick_filter_tasks(
+                    {
+                        "status": "completed",
+                        "completion_start_date": "2024-08-01",
+                        "completion_end_date": "2024-08-31",
+                    }
+                )
+            )
 
         mock_client.task.get_completed.assert_called_once()
         parsed = json.loads(result)
@@ -841,12 +871,15 @@ class TestTickTickFilterTasksEntryPoint:
 
     def test_json_string_filter_criteria_accepted(self):
         mock_client = MagicMock()
-        with patch(
-            "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
-            return_value=mock_client,
-        ), patch(
-            "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
-            return_value=[{"id": "t1", "status": 0}],
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=mock_client,
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                return_value=[{"id": "t1", "status": 0}],
+            ),
         ):
             result = run(ticktick_filter_tasks('{"status": "uncompleted"}'))
 
