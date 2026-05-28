@@ -13,16 +13,18 @@ Module attributes (exported):
 - ``dotenv_dir_path`` -- ``pathlib.Path`` of the resolved directory.
 
 Importing this module has side effects: it parses ``sys.argv`` (with
-``parse_known_args`` so a host process's own flags are tolerated), loads the
-``.env`` file, and exits the process via ``sys.exit`` if either the directory
-or the ``.env`` file is missing. Tests must mock this module before importing
-any of the tool modules; see ``tests/conftest.py``.
+``parse_known_args`` so a host process's own flags are tolerated) and loads
+the ``.env`` file when one is present. If the directory or ``.env`` file is
+missing, the server still starts and relies on credentials passed directly as
+environment variables -- this lets it boot in container/CI environments (e.g.
+registry tool-introspection) that inject credentials as env vars rather than
+mounting a ``.env`` file. Tests must mock this module before importing any of
+the tool modules; see ``tests/conftest.py``.
 """
 
 import argparse
 import logging
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -52,27 +54,37 @@ def _resolve_dotenv_dir() -> Path:
 
 
 def _load_env() -> Path:
-    """Load the .env file and return the directory it lives in."""
+    """Resolve the config directory and load credentials from it.
+
+    Loads a ``.env`` file from the resolved directory when present. When the
+    directory or file is absent the server does not abort: it falls back to
+    credentials supplied directly via environment variables
+    (``TICKTICK_CLIENT_ID`` etc.), which is how container/CI environments
+    typically inject them. The directory is created if missing so the OAuth
+    token cache and completion-tracking DB have somewhere to live.
+    """
     dotenv_dir = _resolve_dotenv_dir()
 
-    if not dotenv_dir.is_dir():
-        print(
-            f"ticktick-mcp: dotenv directory not found: {dotenv_dir}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     env_file = dotenv_dir / ".env"
-    if not env_file.is_file():
-        print(
-            f"ticktick-mcp: .env file not found at {env_file}. "
-            "Copy .env.example to that location and fill in your credentials.",
-            file=sys.stderr,
+    if env_file.is_file():
+        load_dotenv(env_file)
+        logger.info("Loaded TickTick MCP credentials from %s", env_file)
+    else:
+        logger.warning(
+            "ticktick-mcp: no .env file at %s; relying on environment "
+            "variables for credentials (TICKTICK_CLIENT_ID, "
+            "TICKTICK_CLIENT_SECRET, TICKTICK_USERNAME, TICKTICK_PASSWORD).",
+            env_file,
         )
-        sys.exit(1)
+        try:
+            dotenv_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning(
+                "ticktick-mcp: could not create config dir %s: %s",
+                dotenv_dir,
+                exc,
+            )
 
-    load_dotenv(env_file)
-    logger.info("Loaded TickTick MCP credentials from %s", env_file)
     return dotenv_dir
 
 

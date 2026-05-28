@@ -32,8 +32,9 @@ def main() -> None:
         print(_version_text())
         return
 
-    # Loading config has side effects (parses sys.argv for --dotenv-dir,
-    # reads the .env file, exits on missing config).
+    # Loading config has side effects (parses sys.argv for --dotenv-dir and
+    # reads the .env file if present; falls back to env-var credentials when
+    # it is absent).
     from . import config  # noqa: F401
     from .mcp_instance import mcp
 
