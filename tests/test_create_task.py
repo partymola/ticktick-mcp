@@ -57,11 +57,11 @@ class TestCreateTaskBuilderMissingFields:
             run(
                 ticktick_create_task(
                     title="Test task",
-                    projectId="proj123",
-                    startDate="2024-08-01T09:00:00+00:00",
-                    dueDate="2024-08-01T17:00:00+00:00",
-                    expectedDayOfWeek="Thursday",
-                    timeZone="Europe/London",
+                    project_id="proj123",
+                    start_date="2024-08-01T09:00:00+00:00",
+                    due_date="2024-08-01T17:00:00+00:00",
+                    expected_day_of_week="Thursday",
+                    time_zone="Europe/London",
                 )
             )
 
@@ -130,7 +130,7 @@ class TestCreateTaskBuilderMissingFields:
             run(
                 ticktick_create_task(
                     title="Test task",
-                    timeZone="Asia/Seoul",
+                    time_zone="Asia/Seoul",
                 )
             )
 
@@ -191,9 +191,9 @@ class TestCreateTaskBuilderFieldsPreserved:
             run(
                 ticktick_create_task(
                     title="Test task",
-                    startDate="2024-08-01T09:00:00+00:00",
-                    dueDate="2024-08-01T17:00:00+00:00",
-                    expectedDayOfWeek="Thursday",
+                    start_date="2024-08-01T09:00:00+00:00",
+                    due_date="2024-08-01T17:00:00+00:00",
+                    expected_day_of_week="Thursday",
                 )
             )
 
@@ -264,7 +264,7 @@ class TestCreateTaskBuilderFieldsPreserved:
             run(
                 ticktick_create_task(
                     title="Test task",
-                    timeZone="Europe/London",
+                    time_zone="Europe/London",
                 )
             )
 
@@ -346,8 +346,8 @@ class TestCreateTaskTimezoneDefault:
             run(
                 ticktick_create_task(
                     title="Task",
-                    dueDate="2024-08-01T17:00:00+01:00",
-                    expectedDayOfWeek="Thursday",
+                    due_date="2024-08-01T17:00:00+01:00",
+                    expected_day_of_week="Thursday",
                 )
             )
 
@@ -369,7 +369,7 @@ class TestCreateTaskErrorHandling:
             result = run(
                 ticktick_create_task(
                     title="Test",
-                    dueDate="not-a-date",
+                    due_date="not-a-date",
                 )
             )
 

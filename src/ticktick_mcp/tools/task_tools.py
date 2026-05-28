@@ -255,65 +255,65 @@ def _normalise_reminder(reminder: Any) -> Optional[str]:
 @require_ticktick_client
 async def ticktick_create_task(
     title: str,
-    projectId: Optional[str] = None,
+    project_id: Optional[str] = None,
     content: Optional[str] = None,
     desc: Optional[str] = None,
-    allDay: Optional[bool] = None,
-    startDate: Optional[str] = None,
-    dueDate: Optional[str] = None,
-    expectedDayOfWeek: Optional[str] = None,
-    timeZone: Optional[str] = None,
+    all_day: Optional[bool] = None,
+    start_date: Optional[str] = None,
+    due_date: Optional[str] = None,
+    expected_day_of_week: Optional[str] = None,
+    time_zone: Optional[str] = None,
     reminders: Optional[List[str]] = None,
     repeat: Optional[str] = None,
     priority: Optional[int] = None,
-    sortOrder: Optional[int] = None,
+    sort_order: Optional[int] = None,
     items: Optional[List[dict]] = None,
 ) -> str:
     """Create a new task.
 
     Args:
         title (str): Task title. Required.
-        projectId (str, optional): Project ID. Defaults to inbox.
+        project_id (str, optional): Project ID. Defaults to inbox.
         content (str, optional): Long-form content (markdown supported).
         desc (str, optional): Short description / checklist subtitle.
-        allDay (bool, optional): True for all-day tasks.
-        startDate (str, optional): ISO 8601 start datetime, e.g.
+        all_day (bool, optional): True for all-day tasks.
+        start_date (str, optional): ISO 8601 start datetime, e.g.
             ``"2026-04-13T09:00:00+01:00"``.
-        dueDate (str, optional): ISO 8601 due datetime.
-        expectedDayOfWeek (str, optional): English weekday name. Required
-            when ``dueDate`` is set; mismatch returns an error.
-        timeZone (str, optional): IANA timezone. Defaults to the system
+        due_date (str, optional): ISO 8601 due datetime.
+        expected_day_of_week (str, optional): English weekday name. Required
+            when ``due_date`` is set; mismatch returns an error.
+        time_zone (str, optional): IANA timezone. Defaults to the system
             timezone for date conversion.
         reminders (list[str], optional): TickTick trigger strings, e.g.
             ``["TRIGGER:-PT30M"]``.
         repeat (str, optional): Recurrence rule (RFC 5545 RRULE).
         priority (int, optional): 0=None, 1=Low, 3=Medium, 5=High.
-        sortOrder (int, optional): Position within project.
+        sort_order (int, optional): Position within project.
         items (list[dict], optional): Subtask items.
 
     Returns:
         JSON object containing the created task. If verification flags
         an issue, ``_verification_warnings`` is attached. Without
-        ``dueDate`` a warning is added because TickTick will not trigger
+        ``due_date`` a warning is added because TickTick will not trigger
         a reminder.
         On failure: ``{"error": "...", "status": "error"}``.
 
     Limitations:
         - ``builder()`` in ``ticktick-py`` sometimes omits dates,
-          reminders, priority and timeZone; we re-populate them after
+          reminders, priority and timezone; we re-populate them after
           the call.
 
     Agent Usage Guide:
-        - Always pair ``dueDate`` with ``expectedDayOfWeek``.
+        - Always pair ``due_date`` with ``expected_day_of_week``.
         - Look up a project ID with ticktick_get_all(search="projects").
 
     Example:
         ticktick_create_task(
             title="Replace kitchen tap washer",
-            projectId="<your-project-id>",
-            dueDate="2026-06-01T20:45:00+01:00",
-            expectedDayOfWeek="Monday",
-            timeZone="Europe/London",
+            project_id="<your-project-id>",
+            due_date="2026-06-01T20:45:00+01:00",
+            expected_day_of_week="Monday",
+            time_zone="Europe/London",
             priority=3,
         )
     """
@@ -321,52 +321,53 @@ async def ticktick_create_task(
 
     try:
         # --- Date parsing first, so bad input surfaces with a clear error. ---
-        tz_for_dates = timeZone or _local_tz_name()
+        tz_for_dates = time_zone or _local_tz_name()
         start_dt: Optional[datetime.datetime] = None
         due_dt: Optional[datetime.datetime] = None
-        if startDate is not None:
-            start_dt = _parse_iso_to_datetime(startDate, "startDate")
-        if dueDate is not None:
-            due_dt = _parse_iso_to_datetime(dueDate, "dueDate")
+        if start_date is not None:
+            start_dt = _parse_iso_to_datetime(start_date, "start_date")
+        if due_date is not None:
+            due_dt = _parse_iso_to_datetime(due_date, "due_date")
 
         # --- Day-of-week validation (before any network I/O) ---
-        if dueDate is not None:
-            if expectedDayOfWeek is None:
+        if due_date is not None:
+            if expected_day_of_week is None:
                 return format_response(
                     {
                         "error": (
-                            "dueDate set but expectedDayOfWeek is missing. "
+                            "due_date set but expected_day_of_week is missing. "
                             "Supply the English day name to confirm the date."
                         ),
                         "status": "error",
                     }
                 )
-            _validate_day_of_week(dueDate, expectedDayOfWeek, "dueDate", timeZone)
+            _validate_day_of_week(due_date, expected_day_of_week, "due_date", time_zone)
 
-        # --- Build task dict via the library ---
+        # --- Build task dict via the library. ticktick-py expects the
+        # TickTick API field names (camelCase), so translate here. ---
         builder_kwargs: dict[str, Any] = {"title": title}
-        if projectId is not None:
-            builder_kwargs["projectId"] = projectId
+        if project_id is not None:
+            builder_kwargs["projectId"] = project_id
         if content is not None:
             builder_kwargs["content"] = content
         if desc is not None:
             builder_kwargs["desc"] = desc
-        if allDay is not None:
-            builder_kwargs["allDay"] = allDay
+        if all_day is not None:
+            builder_kwargs["allDay"] = all_day
         if start_dt is not None:
             builder_kwargs["startDate"] = start_dt
         if due_dt is not None:
             builder_kwargs["dueDate"] = due_dt
-        if timeZone is not None:
-            builder_kwargs["timeZone"] = timeZone
+        if time_zone is not None:
+            builder_kwargs["timeZone"] = time_zone
         if reminders is not None:
             builder_kwargs["reminders"] = reminders
         if repeat is not None:
             builder_kwargs["repeat"] = repeat
         if priority is not None:
             builder_kwargs["priority"] = priority
-        if sortOrder is not None:
-            builder_kwargs["sortOrder"] = sortOrder
+        if sort_order is not None:
+            builder_kwargs["sortOrder"] = sort_order
         if items is not None:
             builder_kwargs["items"] = items
 
@@ -381,14 +382,14 @@ async def ticktick_create_task(
             task_dict["reminders"] = reminders
         if priority is not None and "priority" not in task_dict:
             task_dict["priority"] = priority
-        if timeZone is not None and "timeZone" not in task_dict:
-            task_dict["timeZone"] = timeZone
+        if time_zone is not None and "timeZone" not in task_dict:
+            task_dict["timeZone"] = time_zone
 
         created = client.task.create(task_dict)
 
         warnings = list(verify_mutation("create", task_dict, created or {}))
-        if dueDate is None:
-            warnings.append("No dueDate set: TickTick will not trigger reminders for this task.")
+        if due_date is None:
+            warnings.append("No due_date set: TickTick will not trigger reminders for this task.")
 
         result = dict(created) if isinstance(created, dict) else {"result": created}
         if warnings:
