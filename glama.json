@@ -1,0 +1,6 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "maintainers": ["partymola"],
+  "name": "ticktick-mcp",
+  "description": "Provides access to TickTick task management via the v2 API: create, update, complete, move, delete, and filter tasks, manage subtasks, retrieve completed tasks within a date range, and track which completions have been processed by an agent. Features field-preserving partial updates, day-of-week date validation, read-after-write verification, and idempotent completion tracking backed by local SQLite."
+}
