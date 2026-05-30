@@ -525,14 +525,19 @@ class TestGetTasksFromProject:
         assert parsed == []
 
     def test_single_dict_response_wrapped_in_list(self, mock_client):
-        """If API returns a single dict, the tool wraps it in a list."""
+        """If API returns a single dict, the tool wraps it in a list.
+
+        Uses detail="full" so the wrapping behaviour under test is checked
+        against the raw object, independent of the compact transform (which
+        is covered in test_compact.py).
+        """
         mock_client.task.get_from_project = MagicMock(return_value={"id": "t1"})
 
         with patch(
             "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
             return_value=mock_client,
         ):
-            result = run(ticktick_get_tasks_from_project(project_id="p1"))
+            result = run(ticktick_get_tasks_from_project(project_id="p1", detail="full"))
 
         parsed = json.loads(result)
         assert parsed == [{"id": "t1"}]

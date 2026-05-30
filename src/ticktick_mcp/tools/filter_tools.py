@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..client import TickTickClientSingleton
+from ..compact import DETAIL_COMPACT, normalise_detail, render_task_list
 from ..helpers import (
     _get_all_tasks_from_ticktick,
     format_response,
@@ -401,7 +402,7 @@ def _build_property_filter(
 
 @mcp.tool()
 @require_ticktick_client
-async def ticktick_filter_tasks(filter_criteria: Any) -> str:
+async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPACT) -> str:
     """Return the tasks matching every supplied filter criterion.
 
     Supports any combination of project, priority, tag, status, and a
@@ -409,6 +410,16 @@ async def ticktick_filter_tasks(filter_criteria: Any) -> str:
     completion timestamp (completed tasks).
 
     Args:
+        detail (str, optional): ``"compact"`` (default) or ``"full"``.
+            Compact drops the heavy ``content``/``desc``/checklist
+            ``items`` blobs and bulky sync metadata, keeping id,
+            projectId, title, dueDate, startDate, priority, status,
+            isAllDay, timeZone, tags plus a ``contentPreview`` (first
+            ~200 chars of content) so keyword search still works. Full
+            returns the raw task objects unchanged. To EDIT a task, fetch
+            the full object with ``ticktick_get_by_id`` first, then send
+            every field back via ``ticktick_update_task`` -- compact
+            output must never feed an update.
         filter_criteria (dict | str): A criteria object, or a JSON string
             that decodes to one. Recognised keys:
 
@@ -428,15 +439,20 @@ async def ticktick_filter_tasks(filter_criteria: Any) -> str:
             * ``sort_by_priority`` (bool): Sort by descending priority.
 
     Returns:
-        JSON list of matching task objects. Empty list if nothing
-        matches. On invalid input or backend failure:
-        ``{"error": "...", "status": "error"}``.
+        JSON list of matching task objects (compact by default; see
+        ``detail``). Empty list if nothing matches. If a compact result
+        would still exceed the size budget, the soonest-due matches are
+        returned and a final ``_truncation_note`` element reports how
+        many were omitted -- nothing is dropped silently. On invalid
+        input or backend failure: ``{"error": "...", "status": "error"}``.
 
     Limitations:
         - TickTick caps ``get_completed`` at 100 results; very wide
           completion windows are truncated server-side.
         - Filtering happens client-side after the fetch, so additional
           criteria do not reduce the number of network requests.
+        - Compact output is for browsing only; full content for one task
+          is available via ``ticktick_get_by_id`` or ``detail="full"``.
 
     Agent Usage Guide:
         - List open tasks in a project:
@@ -457,6 +473,7 @@ async def ticktick_filter_tasks(filter_criteria: Any) -> str:
             }``
     """
     try:
+        detail = normalise_detail(detail)
         property_filter, tz_info, sort_by_priority = _build_property_filter(filter_criteria)
     except ValueError as exc:
         return format_response({"error": str(exc), "status": "error"})
@@ -475,4 +492,4 @@ async def ticktick_filter_tasks(filter_criteria: Any) -> str:
         logger.error("ticktick_filter_tasks: unexpected error: %s", exc, exc_info=True)
         return format_response({"error": f"unexpected error: {exc}", "status": "error"})
 
-    return format_response(results)
+    return render_task_list(results, detail=detail)

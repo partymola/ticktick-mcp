@@ -28,6 +28,7 @@ from ticktick.helpers.time_methods import convert_date_to_tick_tick_format
 from tzlocal import get_localzone
 
 from ..client import TickTickClientSingleton
+from ..compact import DETAIL_COMPACT, normalise_detail, render_task_list
 from ..helpers import (
     ToolLogicError,
     _get_all_tasks_from_ticktick,
@@ -626,20 +627,37 @@ async def ticktick_delete_tasks(
 
 @mcp.tool()
 @require_ticktick_client
-async def ticktick_get_tasks_from_project(project_id: str) -> str:
+async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_COMPACT) -> str:
     """Return every open task in a project.
 
     Args:
         project_id (str): The project's ID. For the inbox, pass the
             value of ``client.inbox_id`` (look it up via
             ``ticktick_get_all(search="projects")``).
+        detail (str, optional): ``"compact"`` (default) or ``"full"``.
+            Compact drops the heavy ``content``/``desc``/checklist
+            ``items`` blobs and bulky sync metadata, keeping id,
+            projectId, title, dueDate, startDate, priority, status,
+            isAllDay, timeZone, tags plus a ``contentPreview`` (first
+            ~200 chars of content) so keyword search still works. Full
+            returns the raw task objects unchanged.
 
     Returns:
-        JSON list of task objects (empty list if none).
+        Compact (default): JSON list of compact task objects. If the
+        compact payload would still exceed the size budget, the
+        soonest-due tasks are returned and a final ``_truncation_note``
+        element reports how many were omitted -- nothing is dropped
+        silently.
+        Full: JSON list of raw task objects (empty list if none).
         On failure: ``{"error": "...", "status": "error"}``.
 
     Limitations:
         - Completed tasks are NOT included.
+        - Compact output is for browsing only. To EDIT a task, fetch the
+          full object with ``ticktick_get_by_id`` first, then send every
+          field back via ``ticktick_update_task`` (the API wipes any
+          field omitted from an update). Get the full content of a single
+          task with ``ticktick_get_by_id``, or pass ``detail="full"``.
 
     Example:
         ticktick_get_tasks_from_project(
@@ -647,13 +665,18 @@ async def ticktick_get_tasks_from_project(project_id: str) -> str:
         )
     """
     try:
+        detail = normalise_detail(detail)
+    except ValueError as exc:
+        return format_response({"error": str(exc), "status": "error"})
+
+    try:
         client = TickTickClientSingleton.get_client()
         tasks = client.task.get_from_project(project_id)
         if tasks is None:
             tasks = []
         elif isinstance(tasks, dict):
             tasks = [tasks]
-        return format_response(list(tasks))
+        return render_task_list(list(tasks), detail=detail)
     except Exception as exc:
         logger.error("ticktick_get_tasks_from_project failed: %s", exc, exc_info=True)
         return format_response({"error": str(exc), "status": "error"})
@@ -905,12 +928,19 @@ async def ticktick_get_by_id(obj_id: str) -> str:
 
 @mcp.tool()
 @require_ticktick_client
-async def ticktick_get_all(search: str) -> str:
+async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
     """Dump everything of a single kind from the local sync state.
 
     Args:
         search (str): Either ``"tasks"``, ``"projects"`` or ``"tags"``
             (case-insensitive).
+        detail (str, optional): ``"compact"`` (default) or ``"full"``.
+            Accepted for parity with the other list tools and validated
+            here. It has no effect on the ``"projects"``/``"tags"``
+            searches (those return non-task records in full) nor on the
+            currently inert ``"tasks"`` search -- for a compact task list
+            use ``ticktick_filter_tasks`` or
+            ``ticktick_get_tasks_from_project``.
 
     Returns:
         For ``"projects"``: JSON list, inbox prepended as
@@ -925,11 +955,16 @@ async def ticktick_get_all(search: str) -> str:
           projects, but the current implementation returns ``None``
           rather than a JSON string. Use
           ``ticktick_filter_tasks({"status": "uncompleted"})`` for a
-          proper JSON response.
+          proper (compact) JSON response.
 
     Example:
         ticktick_get_all(search="projects")
     """
+    try:
+        normalise_detail(detail)
+    except ValueError as exc:
+        return format_response({"error": str(exc), "status": "error"})
+
     try:
         client = TickTickClientSingleton.get_client()
         client.sync()
