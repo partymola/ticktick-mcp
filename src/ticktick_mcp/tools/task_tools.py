@@ -29,6 +29,7 @@ from tzlocal import get_localzone
 
 from ..client import TickTickClientSingleton
 from ..compact import DETAIL_COMPACT, normalise_detail, render_task_list
+from ..freshness import ensure_fresh
 from ..helpers import (
     ToolLogicError,
     _get_all_tasks_from_ticktick,
@@ -247,6 +248,25 @@ def _normalise_reminder(reminder: Any) -> Optional[str]:
     if isinstance(reminder, dict):
         return reminder.get("trigger")
     return None
+
+
+def _is_recurring(task: dict) -> bool:
+    """True if ``task`` carries recurrence metadata.
+
+    Keyed on the PRESENCE of any recurrence field, not on ``repeatFlag``
+    alone: a live recurring task can have an empty ``repeatFlag`` while still
+    carrying ``repeatFrom`` / ``repeatTaskId`` / ``repeatFirstDate``.
+    ``repeatFrom`` is a mode field (``"0"`` = from due date, ``"2"`` = from
+    completion date), so its mere presence signals recurrence.
+    """
+    if not isinstance(task, dict):
+        return False
+    if task.get("repeatTaskId") or task.get("repeatFirstDate"):
+        return True
+    if task.get("repeatFrom") not in (None, "", "0"):
+        return True
+    repeat_flag = task.get("repeatFlag")
+    return bool(repeat_flag and str(repeat_flag).strip())
 
 
 # --- create_task ---
@@ -479,6 +499,9 @@ async def update_task(task_object: TaskObject) -> str:
                 task_object.timeZone,
             )
 
+        # Sync before reading the task we are about to overlay-and-POST: an
+        # update built on a stale snapshot can re-POST stale fields.
+        ensure_fresh(client, force=True)
         existing = client.get_by_id(task_object.id)
         if not isinstance(existing, dict):
             return format_response(
@@ -499,8 +522,36 @@ async def update_task(task_object: TaskObject) -> str:
 
         updated = client.task.update(merged)
 
-        warnings = verify_mutation("update", merged, updated or {})
-        result = dict(updated) if isinstance(updated, dict) else {"result": updated}
+        # An empty / non-dict API response means the server echoed nothing.
+        # That is how the open-API update can silently no-op (e.g. trying to
+        # reopen a completed recurring occurrence via status:0). Re-read to
+        # find out whether the change actually took and tell the caller what
+        # to do, instead of returning {"result": ""} that reads as success.
+        if not isinstance(updated, dict) or not updated:
+            recheck = client.get_by_id(task_object.id)
+            # Compare only robust exact fields (skip content/dates, whose
+            # server-side normalisation would cause false negatives).
+            sent = {k: v for k, v in explicit.items() if k in {"status", "priority", "title"}}
+            applied = (
+                isinstance(recheck, dict)
+                and bool(recheck)
+                and all(recheck.get(k) == v for k, v in sent.items())
+            )
+            if applied:
+                result = dict(recheck)
+                result["outcome"] = "updated"
+                return format_response(result)
+            result = dict(recheck) if isinstance(recheck, dict) and recheck else {}
+            result["outcome"] = "no_op"
+            result["error"] = (
+                "the update returned an empty response and a re-read shows it "
+                "did not apply (common when reopening a completed recurring "
+                "occurrence via status:0). Re-read with ticktick_get_by_id and retry."
+            )
+            return format_response(result)
+
+        warnings = verify_mutation("update", merged, updated)
+        result = dict(updated)
         if warnings:
             result["_verification_warnings"] = warnings
 
@@ -659,6 +710,12 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
           field omitted from an update). Get the full content of a single
           task with ``ticktick_get_by_id``, or pass ``detail="full"``.
 
+    Freshness:
+        Local state is synced from the server at most once per throttle
+        window (default 15s, ``TICKTICK_MCP_SYNC_TTL_SECONDS``); an edit made
+        elsewhere within that window may not be visible yet. Call
+        ``ticktick_sync`` to force an immediate refresh.
+
     Example:
         ticktick_get_tasks_from_project(
             project_id="<your-project-id>"
@@ -671,6 +728,7 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
 
     try:
         client = TickTickClientSingleton.get_client()
+        ensure_fresh(client)
         tasks = client.task.get_from_project(project_id)
         if tasks is None:
             tasks = []
@@ -710,6 +768,8 @@ async def ticktick_complete_task(task_id: str) -> str:
     try:
         client = TickTickClientSingleton.get_client()
 
+        # Sync before reading the body we are about to POST to /complete.
+        ensure_fresh(client, force=True)
         task_obj = client.get_by_id(task_id)
         if not isinstance(task_obj, dict) or not task_obj or "projectId" not in task_obj:
             return format_response(
@@ -719,15 +779,38 @@ async def ticktick_complete_task(task_id: str) -> str:
                 }
             )
 
+        recurring = _is_recurring(task_obj)
         client.task.complete(task_obj)
 
         refetched = client.get_by_id(task_id)
+
+        # A recurring task rolls forward on completion: the SAME id reappears
+        # as the next occurrence (status 0, due date advanced). That is a
+        # successful completion, not a failure -- report it as such instead
+        # of the misleading "status still indicates open" warning the
+        # non-recurring path would emit.
+        rolled_forward = (
+            recurring
+            and isinstance(refetched, dict)
+            and refetched
+            and refetched.get("status", 0) != 2
+        )
+        if rolled_forward:
+            result = dict(refetched)
+            result["outcome"] = "completed_recurring"
+            result["next_occurrence_id"] = refetched.get("id")
+            return format_response(result)
+
         if not isinstance(refetched, dict) or not refetched:
+            # Task left the active list (completed in place). For both
+            # non-recurring tasks and recurring tasks with no live rule this
+            # is the normal success signal.
             return format_response(
                 {
+                    "outcome": "completed",
                     "_verification_warnings": [
                         "post-complete verification failed: task could not be re-fetched"
-                    ]
+                    ],
                 }
             )
 
@@ -911,11 +994,18 @@ async def ticktick_get_by_id(obj_id: str) -> str:
         JSON object of the matching record, or ``null`` if not found.
         On failure: ``{"error": "...", "status": "error"}``.
 
+    Freshness:
+        Local state is synced from the server at most once per throttle
+        window (default 15s, ``TICKTICK_MCP_SYNC_TTL_SECONDS``); an edit made
+        elsewhere within that window may not be visible yet. Call
+        ``ticktick_sync`` to force an immediate refresh.
+
     Example:
         ticktick_get_by_id(obj_id="60ca9dbc8f08516d9dd56324")
     """
     try:
         client = TickTickClientSingleton.get_client()
+        ensure_fresh(client)
         obj = client.get_by_id(obj_id)
         return format_response(obj)
     except Exception as exc:
@@ -995,3 +1085,51 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
     except Exception as exc:
         logger.error("ticktick_get_all failed: %s", exc, exc_info=True)
         return format_response({"error": str(exc), "status": "error"})
+
+
+# --- sync ---
+
+
+@mcp.tool()
+@require_ticktick_client
+async def ticktick_sync() -> str:
+    """Force an immediate refresh of TickTick state from the server.
+
+    The active-read tools (``ticktick_get_by_id``,
+    ``ticktick_get_tasks_from_project``, ``ticktick_filter_tasks``) already
+    auto-refresh at most once per throttle window (default 15s, overridable
+    via ``TICKTICK_MCP_SYNC_TTL_SECONDS``). Call this when you need an
+    immediate refresh -- e.g. you just changed something in the TickTick app
+    on another device, or a read looks stale and you want to be certain
+    before acting.
+
+    Returns:
+        ``{"status": "synced", "task_count": N, "project_count": M}`` on
+        success. ``{"status": "error", "detail": "..."}`` if the refresh
+        failed -- the previous (stale) state is still served by the read
+        tools, so callers can continue with reduced confidence.
+
+    Example:
+        ticktick_sync()
+    """
+    try:
+        client = TickTickClientSingleton.get_client()
+        if not ensure_fresh(client, force=True):
+            return format_response(
+                {
+                    "status": "error",
+                    "detail": "sync failed; previous state is still being served",
+                }
+            )
+        tasks = client.state.get("tasks", []) or []
+        projects = client.state.get("projects", []) or []
+        return format_response(
+            {
+                "status": "synced",
+                "task_count": len(tasks),
+                "project_count": len(projects),
+            }
+        )
+    except Exception as exc:
+        logger.error("ticktick_sync failed: %s", exc, exc_info=True)
+        return format_response({"status": "error", "detail": str(exc)})

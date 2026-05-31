@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..client import TickTickClientSingleton
 from ..compact import DETAIL_COMPACT, normalise_detail, render_task_list
+from ..freshness import ensure_fresh
 from ..helpers import (
     _get_all_tasks_from_ticktick,
     format_response,
@@ -446,6 +447,13 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
         many were omitted -- nothing is dropped silently. On invalid
         input or backend failure: ``{"error": "...", "status": "error"}``.
 
+    Freshness:
+        Uncompleted queries read local state, synced from the server at most
+        once per throttle window (default 15s,
+        ``TICKTICK_MCP_SYNC_TTL_SECONDS``); a change made elsewhere within
+        that window may not be visible yet -- call ``ticktick_sync`` to force
+        a refresh. Completed queries are always fetched live.
+
     Limitations:
         - TickTick caps ``get_completed`` at 100 results; very wide
           completion windows are truncated server-side.
@@ -479,6 +487,11 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
         return format_response({"error": str(exc), "status": "error"})
 
     try:
+        # Uncompleted tasks are read from local sync state, so refresh it
+        # first. The completed branch fetches live via get_completed and
+        # needs no sync.
+        if property_filter.status != "completed":
+            ensure_fresh(TickTickClientSingleton.get_client())
         results = await TaskFilterer().filter(
             property_filter=property_filter,
             sort_by_priority=sort_by_priority,

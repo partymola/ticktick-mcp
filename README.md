@@ -29,6 +29,16 @@ are returned and a final `_truncation_note` element reports how many were
 omitted -- nothing is dropped silently. Reach the rest with a narrower
 `ticktick_filter_tasks` query, `detail="full"`, or `ticktick_get_by_id`.
 
+## Freshness: reads stay current
+
+The TickTick account can be edited from the app on other devices while the
+server runs. To keep reads from going stale, the read tools re-sync server
+state on demand, throttled to at most once per window (default 15s, override
+with `TICKTICK_MCP_SYNC_TTL_SECONDS`). A change made elsewhere becomes visible
+within that window; call `ticktick_sync` to force an immediate refresh and get
+the current task/project counts. If a sync fails, the last-known state is
+served rather than erroring.
+
 ## License
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).

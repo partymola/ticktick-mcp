@@ -49,3 +49,20 @@ sys.modules["ticktick_mcp.mcp_instance"] = fake_mcp_module
 import ticktick_mcp.helpers as helpers_module  # noqa: E402
 
 helpers_module.require_ticktick_client = lambda f: f
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_freshness_state():
+    """Clear the module-level sync throttle before every test.
+
+    ``ensure_fresh`` keeps process-wide timestamps; without a reset the
+    throttle would leak across test cases and suppress the sync a test
+    expects (or vice versa).
+    """
+    import ticktick_mcp.freshness as _freshness
+
+    _freshness.reset_freshness_state()
+    yield
+    _freshness.reset_freshness_state()

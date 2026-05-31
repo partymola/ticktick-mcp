@@ -29,6 +29,25 @@ ticktick-mcp           # Start MCP server (stdio transport, used by Claude Code)
 - **Tools** (`src/ticktick_mcp/tools/`) — one module per tool group (task tools, filter tool, conversion tool, completion-tracking tools).
 - **Completion DB** (`src/ticktick_mcp/completion_db.py`) — local SQLite that tracks which completed tasks have been processed by an agent, so the same completion isn't acted on twice.
 - **Verification** (`src/ticktick_mcp/verification.py`) — read-after-write check that compares what was sent to the API against what came back, attaching `_verification_warnings` to mutated tasks.
+- **Freshness** (`src/ticktick_mcp/freshness.py`) — on-demand, throttled `client.sync()` so long-lived reads do not go stale (see below).
+
+## Freshness model
+
+`ticktick-py` syncs its local `state` only once, at client construction, and the server is a long-lived process that is not the only writer (the same account is edited in the app on other devices). `freshness.ensure_fresh(client)` re-syncs on demand, throttled to at most one sync per window (default 15s, env `TICKTICK_MCP_SYNC_TTL_SECONDS`):
+
+- Active-read tools (`ticktick_get_by_id`, `ticktick_get_tasks_from_project`, the uncompleted branch of `ticktick_filter_tasks`) sync before reading. The completed branch of the filter fetches live, so it is excluded.
+- `ticktick_update_task` / `ticktick_complete_task` force a sync before their pre-read, so the body they POST is not built on a stale snapshot.
+- `ticktick_sync` forces an immediate refresh and reports task/project counts, for when an agent needs certainty now.
+- Sync failures are fail-soft: the last-known state is served and the tool still returns, with a short backoff so a failing API does not turn every read into a tight resync loop.
+
+## Completion & update outcomes
+
+`ticktick_complete_task` tags its result with an additive `outcome`:
+
+- `completed_recurring` (with `next_occurrence_id`) when a recurring task rolls forward on completion — the same id reappears as the next occurrence (status 0, due date advanced). This replaces a misleading "status still indicates open" warning.
+- otherwise the existing behaviour stands; a non-recurring task that leaves the active list keeps the "task could not be re-fetched" success signal.
+
+`ticktick_update_task` returns `outcome: "no_op"` (with re-read guidance) when the API echoes an empty response and a re-read confirms the change did not apply — e.g. trying to reopen a completed recurring occurrence via `status:0`.
 
 ## Test conventions
 
