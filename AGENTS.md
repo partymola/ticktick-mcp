@@ -47,7 +47,10 @@ ticktick-mcp           # Start MCP server (stdio transport, used by Claude Code)
 - `completed_recurring` (with `next_occurrence_id`) when a recurring task rolls forward on completion — the same id reappears as the next occurrence (status 0, due date advanced). This replaces a misleading "status still indicates open" warning.
 - otherwise the existing behaviour stands; a non-recurring task that leaves the active list keeps the "task could not be re-fetched" success signal.
 
-`ticktick_update_task` returns `outcome: "no_op"` (with re-read guidance) when the API echoes an empty response and a re-read confirms the change did not apply — e.g. trying to reopen a completed recurring occurrence via `status:0`.
+`ticktick_update_task` tags its result with an additive `outcome` in two cases:
+
+- `needs_project_id` when the target id is not in local sync state (`get_by_id` returns `{}`) — typically a completed recurring-history occurrence (its status-2 record is never synced locally) or an unknown id — **and** no `projectId` was supplied. Without a routable `projectId` the open-API update silently no-ops (returns `""`), so the tool skips the futile POST and asks for the one thing that makes it work: re-call with `projectId` set on the task object. A completed recurring occurrence reopens cleanly once `projectId` is supplied.
+- `no_op` when the API echoes an empty response and a re-read confirms the change did not apply. Re-read with `ticktick_get_by_id` to confirm the current state before retrying.
 
 ## Test conventions
 

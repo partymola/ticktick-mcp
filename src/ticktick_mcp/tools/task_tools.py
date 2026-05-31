@@ -508,6 +508,32 @@ async def update_task(task_object: TaskObject) -> str:
                 {"error": f"Task not found: {task_object.id}", "status": "error"}
             )
 
+        # get_by_id returns {} (an empty dict -- still a dict, so it slips past
+        # the guard above) for any id not in local sync state: typically a
+        # completed recurring-history occurrence (its status-2 record is never
+        # synced locally) or an unknown id. With no task to copy, the merged body
+        # has no routable projectId, and the open-API update then silently no-ops
+        # (returns "") -- which used to surface as a dead-end "re-read and retry"
+        # that can never succeed. Name the one action that works instead: supply a
+        # projectId. When the caller already set one, fall through -- a routable
+        # body reopens the occurrence cleanly.
+        if not existing and not (
+            "projectId" in task_object.model_fields_set and task_object.projectId
+        ):
+            return format_response(
+                {
+                    "outcome": "needs_project_id",
+                    "status": "error",
+                    "error": (
+                        f"{task_object.id} is not in local sync state (typically a "
+                        "completed recurring-history occurrence, or an unknown id), so "
+                        "the update cannot be routed. Re-call ticktick_update_task with "
+                        "projectId set on the task object to reopen/update it -- the id "
+                        "alone is not enough."
+                    ),
+                }
+            )
+
         merged: dict = {k: v for k, v in existing.items() if k in UPDATABLE_FIELDS}
 
         explicit = task_object.model_dump(mode="json", exclude_unset=True)
@@ -545,8 +571,8 @@ async def update_task(task_object: TaskObject) -> str:
             result["outcome"] = "no_op"
             result["error"] = (
                 "the update returned an empty response and a re-read shows it "
-                "did not apply (common when reopening a completed recurring "
-                "occurrence via status:0). Re-read with ticktick_get_by_id and retry."
+                "did not apply. Re-read with ticktick_get_by_id to confirm the "
+                "current state before retrying."
             )
             return format_response(result)
 
