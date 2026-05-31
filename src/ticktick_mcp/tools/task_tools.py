@@ -534,6 +534,43 @@ async def update_task(task_object: TaskObject) -> str:
                 }
             )
 
+        # Reopening a completed recurring occurrence by its SERIES id is a silent
+        # false-success: completing a recurring task rolls the SAME id forward
+        # (status back to 0, dueDate advanced) and writes the completed instance to
+        # a SEPARATE history record under a new id. So the series id is already
+        # status 0 -- a status:0 "reopen" changes nothing and does NOT undo the
+        # completion, yet the API echoes a normal task that reads as success.
+        # Refuse with an explanation when the caller's ONLY substantive intent is
+        # status:0 on an already-open recurring task. Any real edit (some field
+        # other than status is set) falls through untouched, so the standard
+        # fetch-full-object-then-resend reschedule workflow is unaffected.
+        substantive_fields = (task_object.model_fields_set & UPDATABLE_FIELDS) - {
+            "id",
+            "projectId",
+            "status",
+        }
+        if (
+            "status" in task_object.model_fields_set
+            and task_object.status == 0
+            and not substantive_fields
+            and _is_recurring(existing)
+            and existing.get("status", 0) == 0
+        ):
+            return format_response(
+                {
+                    "outcome": "reopen_no_effect",
+                    "status": "error",
+                    "error": (
+                        "this is a recurring task already rolled forward to its next "
+                        "occurrence (status 0), so a status:0 update changes nothing and "
+                        "does NOT undo the prior completion -- the completed instance is a "
+                        "separate history record under a different id. To revert the "
+                        "completion, delete that history record and reset the dueDate; to "
+                        "advance or skip the series, update dueDate instead."
+                    ),
+                }
+            )
+
         merged: dict = {k: v for k, v in existing.items() if k in UPDATABLE_FIELDS}
 
         explicit = task_object.model_dump(mode="json", exclude_unset=True)

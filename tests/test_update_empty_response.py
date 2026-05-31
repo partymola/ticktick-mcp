@@ -139,3 +139,69 @@ class TestNoOpMessageHasNoDeadEndAdvice:
         assert "did not apply" in parsed["error"]
         assert "ticktick_get_by_id" in parsed["error"]
         assert "common when reopening" not in parsed["error"]
+
+
+class TestRecurringReopenNoEffect:
+    """Reopening a rolled-forward recurring task by its series id via a bare
+    status:0 is a silent false-success: it changes nothing and does not undo
+    the completion. Refuse with an explanation, but never block a real edit.
+    """
+
+    def _recurring_open(self):
+        return {
+            "id": "series1",
+            "projectId": "p1",
+            "title": "Daily standup",
+            "status": 0,
+            "repeatFlag": "RRULE:FREQ=DAILY;INTERVAL=1",
+            "repeatFrom": "2",
+            "dueDate": "2026-06-01T11:00:00.000+0000",
+        }
+
+    def test_bare_status0_on_recurring_series_id_is_refused(self, mock_client):
+        mock_client.get_by_id = MagicMock(return_value=self._recurring_open())
+
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+            return_value=mock_client,
+        ):
+            result = run(update_task(task_object={"id": "series1", "status": 0}))
+
+        parsed = json.loads(result)
+        assert parsed["outcome"] == "reopen_no_effect"
+        assert parsed["status"] == "error"
+        assert "does NOT undo" in parsed["error"]
+        # No futile / misleading POST is issued.
+        mock_client.task.update.assert_not_called()
+
+    def test_status0_with_another_field_change_proceeds(self, mock_client):
+        """A real edit that happens to carry status:0 must NOT be refused."""
+        mock_client.get_by_id = MagicMock(return_value=self._recurring_open())
+        mock_client.task.update = MagicMock(side_effect=lambda d: d)
+
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+            return_value=mock_client,
+        ):
+            result = run(update_task(task_object={"id": "series1", "status": 0, "priority": 5}))
+
+        parsed = json.loads(result)
+        assert parsed.get("outcome") != "reopen_no_effect"
+        assert parsed["priority"] == 5
+        mock_client.task.update.assert_called_once()
+
+    def test_bare_status0_on_nonrecurring_open_task_proceeds(self, mock_client):
+        """The guard is recurring-only; non-recurring tasks are unaffected."""
+        existing = {"id": "t9", "projectId": "p1", "title": "One-off", "status": 0}
+        mock_client.get_by_id = MagicMock(return_value=existing)
+        mock_client.task.update = MagicMock(side_effect=lambda d: d)
+
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+            return_value=mock_client,
+        ):
+            result = run(update_task(task_object={"id": "t9", "status": 0}))
+
+        parsed = json.loads(result)
+        assert parsed.get("outcome") != "reopen_no_effect"
+        mock_client.task.update.assert_called_once()

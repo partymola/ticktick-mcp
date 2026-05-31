@@ -51,6 +51,7 @@ ticktick-mcp           # Start MCP server (stdio transport, used by Claude Code)
 
 - `needs_project_id` when the target id is not in local sync state (`get_by_id` returns `{}`) — typically a completed recurring-history occurrence (its status-2 record is never synced locally) or an unknown id — **and** no `projectId` was supplied. Without a routable `projectId` the open-API update silently no-ops (returns `""`), so the tool skips the futile POST and asks for the one thing that makes it work: re-call with `projectId` set on the task object. A completed recurring occurrence reopens cleanly once `projectId` is supplied.
 - `no_op` when the API echoes an empty response and a re-read confirms the change did not apply. Re-read with `ticktick_get_by_id` to confirm the current state before retrying.
+- `reopen_no_effect` (an error) when the caller's only substantive change is `status:0` on a recurring task that has already rolled forward (it is back at status 0). Completing a recurring task advances the same id and files the completed instance as a separate history record, so a `status:0` "reopen" of the series id changes nothing and does **not** undo the completion — rather than let that read as success, the tool refuses and explains. Any update that also changes another field proceeds normally, so reschedules are unaffected.
 
 ## Test conventions
 
