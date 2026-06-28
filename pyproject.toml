@@ -48,7 +48,10 @@ ticktick-py = { git = "https://github.com/partymola/ticktick-py.git", rev = "mai
 dev = [
     "pytest>=8.3.5",
     "pytest-asyncio>=0.25.0",
-    "ruff>=0.6",
+    # Pinned exactly so local and CI lint are deterministic: ruff's formatter
+    # changes between releases, and an unpinned spec lets CI pull a newer ruff
+    # that reformats code an older local ruff had passed. Bump deliberately.
+    "ruff==0.15.20",
 ]
 
 [tool.pytest.ini_options]
