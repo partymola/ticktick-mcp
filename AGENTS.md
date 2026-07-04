@@ -26,6 +26,7 @@ ticktick-mcp           # Start MCP server (stdio transport, used by Claude Code)
 ## Architecture
 
 - **MCP layer** (`src/ticktick_mcp/`) wraps `ticktick-py` (the TickTick v2 API client) and exposes MCP tools.
+- **Client lifecycle** (`src/ticktick_mcp/client.py`) — lazy singleton constructed on the first tool call (`ticktick-py` logs in and syncs during `__init__`). A failed construction is not permanent: it is retried after a cooldown (default 60s, env `TICKTICK_MCP_INIT_RETRY_SECONDS`), and the auth-gate error in `helpers.py` reports the underlying failure so callers know to retry rather than restart.
 - **Tools** (`src/ticktick_mcp/tools/`) — one module per tool group (task tools, filter tool, conversion tool, completion-tracking tools).
 - **Completion DB** (`src/ticktick_mcp/completion_db.py`) — local SQLite that tracks which completed tasks have been processed by an agent, so the same completion isn't acted on twice.
 - **Verification** (`src/ticktick_mcp/verification.py`) — read-after-write check that compares what was sent to the API against what came back, attaching `_verification_warnings` to mutated tasks.

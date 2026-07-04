@@ -154,6 +154,29 @@ class TestRequireTickTickClient:
         assert "error" in parsed
         assert "TickTick client not initialized" in parsed["error"]
 
+    def test_client_none_error_includes_last_init_error(self):
+        """The short-circuit error surfaces the underlying init failure."""
+
+        @_real_require_ticktick_client
+        async def fake_tool():
+            return "should not be returned"
+
+        with (
+            patch(
+                "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
+                return_value=None,
+            ),
+            patch(
+                "ticktick_mcp.helpers.TickTickClientSingleton.last_error",
+                return_value="login rate limited",
+            ),
+        ):
+            result = run(fake_tool())
+
+        parsed = json.loads(result)
+        assert "TickTick client not initialized" in parsed["error"]
+        assert "login rate limited" in parsed["error"]
+
     def test_client_present_calls_through(self):
         """When the client is available, the wrapped function is called."""
 

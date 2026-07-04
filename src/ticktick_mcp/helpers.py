@@ -66,20 +66,26 @@ def require_ticktick_client(func):
     """Decorator: short-circuit a tool call if the client is unavailable.
 
     Wraps an async MCP tool. When ``TickTickClientSingleton.get_client()``
-    returns ``None`` (i.e. authentication failed at startup), the wrapped
-    coroutine is not called and we return a JSON error string straight to
-    the MCP layer.
+    returns ``None`` (i.e. authentication failed), the wrapped coroutine
+    is not called and we return a JSON error string straight to the MCP
+    layer, including the underlying failure and when a retry will happen.
     """
 
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         if TickTickClientSingleton.get_client() is None:
+            detail = TickTickClientSingleton.last_error()
+            message = "TickTick client not initialized"
+            if detail:
+                message += f" (last error: {detail})"
+            message += (
+                ". Initialisation is retried automatically after a cooldown"
+                " -- wait a minute and call again. If this persists, check"
+                " the server's .env credentials."
+            )
             return format_response(
                 {
-                    "error": (
-                        "TickTick client not initialized. Check the server's "
-                        ".env credentials and restart."
-                    ),
+                    "error": message,
                     "status": "error",
                 }
             )
