@@ -30,12 +30,16 @@ if git diff --cached --name-only | grep -E '^config/.*\.(json|env)$' | grep -qvE
     errors=1
 fi
 
-# Check for large files (>100KB) that might be data dumps
+# Check for large files (>100KB) that might be data dumps. uv.lock is
+# exempt: a dependency lockfile is legitimately large and only grows.
 # Use a temp file instead of process substitution to keep this POSIX sh compatible
 _tmpfile=$(mktemp)
 trap 'rm -f "$_tmpfile"' EXIT
 git diff --cached --name-only --diff-filter=ACM > "$_tmpfile"
 while IFS= read -r file; do
+    case "$file" in
+        uv.lock) continue ;;
+    esac
     size=$(git cat-file -s ":$file" 2>/dev/null || echo 0)
     if [ "$size" -gt 102400 ]; then
         echo "ERROR: Staged file '$file' is $(( size / 1024 ))KB (>100KB) - possible data leak"
