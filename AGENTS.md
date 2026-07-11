@@ -1,6 +1,11 @@
-# ticktick-mcp
+# ticktick-mcp - agent guide
 
-**This is a public open-source repository.** Every commit, PR, and file is visible to anyone.
+`CLAUDE.md` symlinks to this file. It orients AI agents and contributors working *in* the code, and deliberately does not repeat the user-facing docs:
+
+- **What it is, install, auth, tools, config, CLI, usage** -> [README.md](README.md)
+- **Dev environment, running tests, pre-commit hook, PR & security process** -> [CONTRIBUTING.md](CONTRIBUTING.md)
+
+**This is a public open-source repository.** Read the Data Safety Rules before committing.
 
 ## Data Safety Rules
 
@@ -15,12 +20,6 @@ The pre-commit hook (`scripts/check-no-data.sh`) automatically rejects database 
 
 ```bash
 ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
-```
-
-## Quick Reference
-
-```bash
-ticktick-mcp           # Start MCP server (stdio transport, used by Claude Code)
 ```
 
 ## Architecture
