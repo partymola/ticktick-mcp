@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-12
+
 ### Fixed
 - Client initialisation failures are no longer cached for the lifetime of the process. A transient login failure (rate limit, network blip, TickTick outage) used to leave the server permanently returning "TickTick client not initialized" until restarted; initialisation is now retried after a cooldown (default 60s, `TICKTICK_MCP_INIT_RETRY_SECONDS`). The error response now includes the underlying failure message and states that a retry will happen automatically.
+
+### Packaging
+- Listed in the official MCP registry (`io.github.partymola/ticktick-mcp`) via a GHCR container image; a release workflow builds/pushes the image and publishes to the registry.
+- The container image now builds with `uv` from `uv.lock`, so it installs the patched `ticktick-py` fork (a plain `pip install` pulled the broken upstream, whose login no longer works).
 
 ## [0.1.0] - 2026-06-09
 
@@ -27,5 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied — the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward — such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/partymola/ticktick-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/partymola/ticktick-mcp/releases/tag/v0.1.0

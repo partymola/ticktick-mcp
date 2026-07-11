@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.partymola/ticktick-mcp",
+  "description": "MCP server for TickTick task management: field-preserving updates and completion tracking.",
+  "repository": {
+    "url": "https://github.com/partymola/ticktick-mcp",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/partymola/ticktick-mcp:v0.1.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
