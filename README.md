@@ -63,6 +63,12 @@ There is no separate `auth` step. The server logs in lazily on the first tool ca
 
 The server looks for `.env` in this order: the `--dotenv-dir <path>` argument, then the `TICKTICK_MCP_DOTENV_DIR` environment variable, then `~/.config/ticktick-mcp/`. If no `.env` is found it falls back to the `TICKTICK_*` environment variables directly, which is convenient for container/CI use.
 
+## Privacy and the unofficial API
+
+Your TickTick credentials live only in your local `.env` (or the environment) and are sent only to TickTick's own servers - never to the developer or any third party. The server reads and writes only your own account.
+
+This server uses TickTick's unofficial v2 API (via `ticktick-py`) rather than the official Open API. That is a deliberate choice: the official API has no list-completed-tasks endpoint, no tags, and no cross-project task listing - all of which this server relies on. See [docs/why-not-the-official-api.md](https://github.com/partymola/ticktick-mcp/blob/main/docs/why-not-the-official-api.md) for the full rationale, the risk trade-off, and the triggers that would make us reconsider.
+
 ## Register with Claude Code
 
 ```bash
