@@ -133,6 +133,7 @@ The TickTick account can be edited from the app on other devices while the serve
 | `TICKTICK_MCP_DOTENV_DIR` | `~/.config/ticktick-mcp/` | Directory holding the `.env` file (the `--dotenv-dir` argument takes precedence) |
 | `TICKTICK_MCP_SYNC_TTL_SECONDS` | `15` | Minimum seconds between on-demand read re-syncs |
 | `TICKTICK_MCP_INIT_RETRY_SECONDS` | `60` | Cooldown before retrying client login after a failed first connection |
+| `TICKTICK_MCP_RATELIMIT_RETRY_SECONDS` | `300` | Cooldown before retrying login after a rate-limit (HTTP 429); longer than the init cooldown because a 429 clears slowly and each retry prolongs it |
 
 Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_URI`, `TICKTICK_USERNAME`, `TICKTICK_PASSWORD`) are read from the `.env` file or, if absent, directly from the environment.
 
@@ -141,8 +142,7 @@ Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_
 A pre-commit hook (`scripts/check-no-data.sh`) blocks accidentally committing databases, credentials, and large files - `*.db` and backup variants, anything under `config/*.json` / `config/*.env` (except `*.example.*`), and files over 100KB (except `uv.lock`). Install it after cloning:
 
 ```bash
-cp scripts/check-no-data.sh .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 ```
 
 ## Contributing
