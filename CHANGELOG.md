@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A TickTick login rate-limit is now surfaced explicitly instead of as a generic "Could Not Complete Request". ticktick-py re-authenticates with username/password on every client construction, and TickTick throttles that `user/signon` endpoint with HTTP 429; the failure now carries the HTTP status code, tool calls return `status: "rate_limited"` with a clear "stop retrying, wait ~15-30 minutes" message, and the server backs its own initialisation retry off to 5 minutes on a 429 (`TICKTICK_MCP_RATELIMIT_RETRY_SECONDS`, default 300s) instead of the ordinary 60s, so it stops re-hitting the throttled login and prolonging the block.
+
 ## [0.1.1] - 2026-07-12
 
 ### Fixed

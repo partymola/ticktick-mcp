@@ -177,6 +177,32 @@ class TestRequireTickTickClient:
         assert "TickTick client not initialized" in parsed["error"]
         assert "login rate limited" in parsed["error"]
 
+    def test_rate_limited_returns_stop_message(self):
+        """A 429 login rate-limit yields a rate_limited status and a STOP
+        instruction so agents back off instead of retrying."""
+
+        @_real_require_ticktick_client
+        async def fake_tool():
+            return "should not be returned"
+
+        with (
+            patch(
+                "ticktick_mcp.helpers.TickTickClientSingleton.get_client",
+                return_value=None,
+            ),
+            patch(
+                "ticktick_mcp.helpers.TickTickClientSingleton.is_rate_limited",
+                return_value=True,
+            ),
+        ):
+            result = run(fake_tool())
+
+        parsed = json.loads(result)
+        assert parsed["status"] == "rate_limited"
+        assert "429" in parsed["error"]
+        assert "STOP" in parsed["error"]
+        assert "retry" in parsed
+
     def test_client_present_calls_through(self):
         """When the client is available, the wrapped function is called."""
 

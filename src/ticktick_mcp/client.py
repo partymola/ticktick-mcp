@@ -29,7 +29,40 @@ from .config import (
 
 logger = logging.getLogger(__name__)
 
+
+def _augmented_check_status_code(response, error_message):
+    """Drop-in for ticktick-py's ``check_status_code`` that includes the HTTP
+    status code in the raised message.
+
+    ticktick-py raises a bare ``RuntimeError('Could Not Complete Request')``
+    with no status code, so a login rate-limit (HTTP 429) is indistinguishable
+    downstream from any other failure. Including the code lets the singleton
+    recognise a rate-limit and tell agents to stop retrying.
+    """
+    status = getattr(response, "status_code", None)
+    if status != 200:
+        if status is not None:
+            raise RuntimeError(f"{error_message} (HTTP {status})")
+        raise RuntimeError(error_message)
+
+
+def _augment_check_status_code() -> None:
+    """Install :func:`_augmented_check_status_code` on ticktick-py's client.
+
+    Idempotent, and a no-op if the class has already been augmented. No extra
+    HTTP request is made -- this only changes the exception message text.
+    """
+    if getattr(TickTickClient, "_status_code_augmented", False):
+        return
+    TickTickClient.check_status_code = staticmethod(_augmented_check_status_code)
+    TickTickClient._status_code_augmented = True
+
+
+_augment_check_status_code()
+
+
 _DEFAULT_INIT_RETRY_SECONDS = 60.0
+_DEFAULT_RATELIMIT_RETRY_SECONDS = 300.0
 
 
 def _init_retry_seconds() -> float:
@@ -46,6 +79,29 @@ def _init_retry_seconds() -> float:
 
 
 INIT_RETRY_SECONDS: float = _init_retry_seconds()
+
+
+def _ratelimit_retry_seconds() -> float:
+    """Resolve the rate-limit backoff, honouring
+    ``TICKTICK_MCP_RATELIMIT_RETRY_SECONDS``.
+
+    Longer than the ordinary init cooldown because a 429 clears slowly and
+    every re-attempt of the throttled login prolongs it.
+    """
+    raw = os.environ.get("TICKTICK_MCP_RATELIMIT_RETRY_SECONDS")
+    if raw is None:
+        return _DEFAULT_RATELIMIT_RETRY_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid TICKTICK_MCP_RATELIMIT_RETRY_SECONDS=%r; using default", raw
+        )
+        return _DEFAULT_RATELIMIT_RETRY_SECONDS
+    return value if value >= 0 else _DEFAULT_RATELIMIT_RETRY_SECONDS
+
+
+RATELIMIT_RETRY_SECONDS: float = _ratelimit_retry_seconds()
 
 
 class TickTickClientSingleton:
@@ -69,7 +125,10 @@ class TickTickClientSingleton:
 
         if cls._last_failure_monotonic is not None:
             elapsed = time.monotonic() - cls._last_failure_monotonic
-            if elapsed < INIT_RETRY_SECONDS:
+            cooldown = (
+                RATELIMIT_RETRY_SECONDS if cls.is_rate_limited() else INIT_RETRY_SECONDS
+            )
+            if elapsed < cooldown:
                 return None
             logger.info(
                 "Retrying TickTick client initialisation (%.0fs since last failure).",
@@ -103,3 +162,14 @@ class TickTickClientSingleton:
     def last_error(cls) -> Optional[str]:
         """Return the message of the most recent initialisation failure."""
         return cls._last_error
+
+    @classmethod
+    def is_rate_limited(cls) -> bool:
+        """True when the most recent init failure was a login rate-limit.
+
+        TickTick throttles the username/password ``user/signon`` endpoint
+        with HTTP 429; the augmented ``check_status_code`` puts that code in
+        the error message. Used to lengthen the retry backoff and to tell
+        agents to stop retrying rather than hammer the throttled login.
+        """
+        return "429" in (cls._last_error or "")

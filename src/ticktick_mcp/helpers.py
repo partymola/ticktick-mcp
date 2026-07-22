@@ -74,6 +74,21 @@ def require_ticktick_client(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         if TickTickClientSingleton.get_client() is None:
+            if TickTickClientSingleton.is_rate_limited():
+                message = (
+                    "TickTick login is RATE LIMITED (HTTP 429). STOP -- do not"
+                    " retry TickTick tools. Each call re-attempts the throttled"
+                    " login endpoint and prolongs the block. Wait ~15-30 minutes"
+                    " for the limit to clear, then try again. This is NOT a"
+                    " credential problem."
+                )
+                return format_response(
+                    {
+                        "error": message,
+                        "status": "rate_limited",
+                        "retry": "stop; wait 15-30 min before any TickTick call",
+                    }
+                )
             detail = TickTickClientSingleton.last_error()
             message = "TickTick client not initialized"
             if detail:
