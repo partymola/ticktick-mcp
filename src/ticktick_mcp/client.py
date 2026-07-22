@@ -94,9 +94,7 @@ def _ratelimit_retry_seconds() -> float:
     try:
         value = float(raw)
     except ValueError:
-        logger.warning(
-            "Invalid TICKTICK_MCP_RATELIMIT_RETRY_SECONDS=%r; using default", raw
-        )
+        logger.warning("Invalid TICKTICK_MCP_RATELIMIT_RETRY_SECONDS=%r; using default", raw)
         return _DEFAULT_RATELIMIT_RETRY_SECONDS
     return value if value >= 0 else _DEFAULT_RATELIMIT_RETRY_SECONDS
 
@@ -125,9 +123,7 @@ class TickTickClientSingleton:
 
         if cls._last_failure_monotonic is not None:
             elapsed = time.monotonic() - cls._last_failure_monotonic
-            cooldown = (
-                RATELIMIT_RETRY_SECONDS if cls.is_rate_limited() else INIT_RETRY_SECONDS
-            )
+            cooldown = RATELIMIT_RETRY_SECONDS if cls.is_rate_limited() else INIT_RETRY_SECONDS
             if elapsed < cooldown:
                 return None
             logger.info(

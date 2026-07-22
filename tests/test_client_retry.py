@@ -132,16 +132,12 @@ class TestCheckStatusCodeAugmentation:
         response = MagicMock()
         response.status_code = 429
         with pytest.raises(RuntimeError, match=r"HTTP 429"):
-            client_module._augmented_check_status_code(
-                response, "Could Not Complete Request"
-            )
+            client_module._augmented_check_status_code(response, "Could Not Complete Request")
 
     def test_200_does_not_raise(self):
         response = MagicMock()
         response.status_code = 200
-        client_module._augmented_check_status_code(
-            response, "Could Not Complete Request"
-        )
+        client_module._augmented_check_status_code(response, "Could Not Complete Request")
 
     def test_missing_status_code_falls_back_to_bare_message(self):
         response = object()  # no status_code attribute
