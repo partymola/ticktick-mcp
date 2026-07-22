@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-22
+
 ### Added
 - The v2 session token from a successful login is now cached to disk (`config/.token-v2`, `0600`) and reused on the next start, so the server no longer re-runs the username/password login (`user/signon`) on every construction. That endpoint is the one TickTick rate-limits with HTTP 429, so reusing the token -- as a logged-in browser does -- avoids the throttle entirely. A stale cached token is detected (the startup sync rejects it), cleared, and replaced by a single fresh login that repopulates the cache.
 
@@ -41,7 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied — the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward — such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/partymola/ticktick-mcp/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/partymola/ticktick-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/partymola/ticktick-mcp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/partymola/ticktick-mcp/releases/tag/v0.1.0
