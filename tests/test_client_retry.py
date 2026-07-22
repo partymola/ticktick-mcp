@@ -165,6 +165,103 @@ class TestRateLimitRetrySecondsEnv:
             assert client_module._ratelimit_retry_seconds() == 300.0
 
 
+class TestV2TokenCache:
+    def test_write_read_roundtrip(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            client_module._write_v2_token("tok-abc")
+            assert client_module._read_v2_token() == "tok-abc"
+
+    def test_read_missing_returns_none(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            assert client_module._read_v2_token() is None
+
+    def test_read_corrupt_returns_none(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            (tmp_path / client_module._V2_TOKEN_FILENAME).write_text("not json{")
+            assert client_module._read_v2_token() is None
+
+    def test_write_ignores_non_string(self, tmp_path):
+        """A mocked client's non-string access_token must not be serialised."""
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            client_module._write_v2_token(MagicMock())
+            assert not (tmp_path / client_module._V2_TOKEN_FILENAME).exists()
+
+    def test_write_sets_0600(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            client_module._write_v2_token("tok")
+            mode = (tmp_path / client_module._V2_TOKEN_FILENAME).stat().st_mode & 0o777
+            assert mode == 0o600
+
+    def test_delete_removes_file(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            client_module._write_v2_token("tok")
+            client_module._delete_v2_token()
+            assert client_module._read_v2_token() is None
+
+
+class TestConstructClientTokenReuse:
+    def test_valid_cached_token_injected_no_signon(self, tmp_path):
+        seen = {}
+
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                seen["injected"] = client_module._INJECTED_V2_TOKEN
+                self.access_token = "should-not-be-rewritten"
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "TickTickClient", FakeClient),
+            patch.object(client_module, "OAuth2", MagicMock()),
+        ):
+            client_module._write_v2_token("cached-tok")
+            result = TickTickClientSingleton._construct_client()
+
+            assert isinstance(result, FakeClient)
+            # The cached token was injected during construction (no signon)...
+            assert seen["injected"] == "cached-tok"
+            # ...cleared afterwards...
+            assert client_module._INJECTED_V2_TOKEN is None
+            # ...and the valid path leaves the cache untouched.
+            assert client_module._read_v2_token() == "cached-tok"
+
+    def test_stale_token_falls_back_and_refreshes(self, tmp_path):
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                if client_module._INJECTED_V2_TOKEN:
+                    raise RuntimeError("Could Not Complete Request (HTTP 401)")
+                self.access_token = "fresh-tok"
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "TickTickClient", FakeClient),
+            patch.object(client_module, "OAuth2", MagicMock()),
+        ):
+            client_module._write_v2_token("stale-tok")
+            result = TickTickClientSingleton._construct_client()
+
+            assert result.access_token == "fresh-tok"
+            assert client_module._INJECTED_V2_TOKEN is None
+            # Stale cache cleared, then refreshed with the newly-issued token.
+            assert client_module._read_v2_token() == "fresh-tok"
+
+    def test_no_cache_logs_in_and_caches_token(self, tmp_path):
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                assert client_module._INJECTED_V2_TOKEN is None
+                self.access_token = "new-tok"
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "TickTickClient", FakeClient),
+            patch.object(client_module, "OAuth2", MagicMock()),
+        ):
+            assert client_module._read_v2_token() is None
+            result = TickTickClientSingleton._construct_client()
+
+            assert result.access_token == "new-tok"
+            assert client_module._read_v2_token() == "new-tok"
+
+
 class TestInitRetrySecondsEnv:
     def test_default_when_unset(self):
         with patch.dict(os.environ, {}, clear=False):

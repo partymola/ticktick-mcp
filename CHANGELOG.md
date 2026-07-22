@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The v2 session token from a successful login is now cached to disk (`config/.token-v2`, `0600`) and reused on the next start, so the server no longer re-runs the username/password login (`user/signon`) on every construction. That endpoint is the one TickTick rate-limits with HTTP 429, so reusing the token -- as a logged-in browser does -- avoids the throttle entirely. A stale cached token is detected (the startup sync rejects it), cleared, and replaced by a single fresh login that repopulates the cache.
+
 ## [0.1.2] - 2026-07-22
 
 ### Fixed

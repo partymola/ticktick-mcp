@@ -10,6 +10,7 @@ but each failed attempt costs seconds, so back-to-back tool calls should
 not all re-attempt authentication.
 """
 
+import json
 import logging
 import os
 import time
@@ -59,6 +60,91 @@ def _augment_check_status_code() -> None:
 
 
 _augment_check_status_code()
+
+
+# ---------------------------------------------------------------------------
+# Cached v2 session token
+#
+# ticktick-py re-runs a full username/password login (POST user/signon) on
+# every client construction. TickTick throttles that endpoint with HTTP 429,
+# so a server that re-logs-in on every start eventually gets locked out -- a
+# browser avoids this by keeping its session cookie and never re-submitting
+# credentials. We do the same: persist the v2 session token from a successful
+# login and inject it on the next construction, skipping signon entirely. A
+# stale token simply fails the follow-up _settings()/sync() calls, which
+# triggers a single real login that refreshes the cache.
+# ---------------------------------------------------------------------------
+
+_V2_TOKEN_FILENAME = ".token-v2"
+_INJECTED_V2_TOKEN: Optional[str] = None
+
+
+def _v2_token_path():
+    return dotenv_dir_path / _V2_TOKEN_FILENAME
+
+
+def _read_v2_token() -> Optional[str]:
+    """Return the cached v2 session token, or ``None`` if absent/unreadable."""
+    try:
+        raw = _v2_token_path().read_text()
+    except OSError:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    token = data.get("token") if isinstance(data, dict) else None
+    return token or None
+
+
+def _write_v2_token(token: Optional[str]) -> None:
+    """Persist the v2 session token with 0600 perms; best-effort, no raise.
+
+    Only genuine string tokens are written -- this keeps a mocked client's
+    non-string ``access_token`` from being serialised in tests.
+    """
+    if not isinstance(token, str) or not token:
+        return
+    path = _v2_token_path()
+    try:
+        path.write_text(json.dumps({"token": token}))
+        os.chmod(path, 0o600)
+    except OSError as exc:
+        logger.warning("Could not cache TickTick v2 token: %s", exc)
+
+
+def _delete_v2_token() -> None:
+    """Remove the cached v2 session token; best-effort, no raise."""
+    try:
+        _v2_token_path().unlink()
+    except OSError:
+        pass
+
+
+def _augment_login() -> None:
+    """Let ticktick-py reuse a cached v2 token instead of hitting signon.
+
+    Wraps ``TickTickClient._login`` once so that, when a token has been
+    injected (via :meth:`TickTickClientSingleton._construct_client`), it sets
+    the session token directly and skips the throttled username/password POST.
+    With no injected token it falls back to the original login unchanged.
+    """
+    if getattr(TickTickClient, "_login_augmented", False):
+        return
+    original_login = TickTickClient._login
+
+    def _login(self, username, password):
+        if _INJECTED_V2_TOKEN:
+            self.access_token = _INJECTED_V2_TOKEN
+            self.cookies["t"] = _INJECTED_V2_TOKEN
+            return
+        original_login(self, username, password)
+
+    TickTickClient._login = _login
+    TickTickClient._login_augmented = True
+
+
+_augment_login()
 
 
 _DEFAULT_INIT_RETRY_SECONDS = 60.0
@@ -132,17 +218,7 @@ class TickTickClientSingleton:
             )
 
         try:
-            oauth = OAuth2(
-                client_id=CLIENT_ID,
-                client_secret=CLIENT_SECRET,
-                redirect_uri=REDIRECT_URI,
-                cache_path=str(dotenv_dir_path / ".token-oauth"),
-            )
-            cls._instance = TickTickClient(
-                username=USERNAME,
-                password=PASSWORD,
-                oauth=oauth,
-            )
+            cls._instance = cls._construct_client()
             cls._last_failure_monotonic = None
             cls._last_error = None
             logger.info("TickTick client initialised.")
@@ -169,3 +245,41 @@ class TickTickClientSingleton:
         agents to stop retrying rather than hammer the throttled login.
         """
         return "429" in (cls._last_error or "")
+
+    @classmethod
+    def _construct_client(cls) -> TickTickClient:
+        """Build a ``TickTickClient``, reusing a cached v2 session token when
+        possible to avoid the throttled signon endpoint.
+
+        A cached token is injected and validated by the client's own
+        ``_settings()``/``sync()`` startup calls; if it is stale those raise,
+        the cache is cleared, and a single fresh username/password login runs
+        and repopulates the cache. With no cache, a fresh login runs and its
+        token is cached for next time.
+        """
+        global _INJECTED_V2_TOKEN
+
+        def _new_oauth() -> OAuth2:
+            return OAuth2(
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+                redirect_uri=REDIRECT_URI,
+                cache_path=str(dotenv_dir_path / ".token-oauth"),
+            )
+
+        cached = _read_v2_token()
+        if cached:
+            _INJECTED_V2_TOKEN = cached
+            try:
+                client = TickTickClient(username=USERNAME, password=PASSWORD, oauth=_new_oauth())
+                logger.info("TickTick session resumed from cached v2 token.")
+                return client
+            except Exception as exc:
+                logger.info("Cached TickTick v2 token rejected (%s); logging in fresh.", exc)
+                _delete_v2_token()
+            finally:
+                _INJECTED_V2_TOKEN = None
+
+        client = TickTickClient(username=USERNAME, password=PASSWORD, oauth=_new_oauth())
+        _write_v2_token(getattr(client, "access_token", None))
+        return client
