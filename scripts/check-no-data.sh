@@ -1,10 +1,10 @@
 #!/bin/sh
 # Pre-commit hook: reject commits containing database files, config secrets,
-# or suspiciously large files that might contain real real account data.
+# or suspiciously large files that might contain real account data.
 #
 # POSIX sh compatible - no bash required.
 #
-# Install: cp scripts/check-no-data.sh .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Install: ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 
 set -eu
 
@@ -49,6 +49,6 @@ done < "$_tmpfile"
 
 if [ "$errors" -ne 0 ]; then
     echo ""
-    echo "Commit rejected. Health data and credentials must never be committed."
+    echo "Commit rejected. Task data and credentials must never be committed."
     exit 1
 fi
