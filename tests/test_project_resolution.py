@@ -491,3 +491,64 @@ def test_completion_tools_say_unverifiable_not_missing_when_the_refresh_fails(ca
     assert result.get("outcome") == "project_list_unverifiable"
     assert "No project matches" not in json.dumps(result)
     marked.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: ticktick_get_unprocessed_completions("Personal"),
+        lambda: ticktick_mark_completion_processed(task_id="t1", project_id="Personal"),
+    ],
+    ids=["get_unprocessed", "mark_processed"],
+)
+def test_ambiguity_appearing_only_after_the_forced_refresh_is_still_an_error(call):
+    """The re-resolve after the forced refresh can raise for the first time -
+    the second project only shows up in that sync. Outside a handler it escapes
+    as an unhandled exception instead of a caller-visible error."""
+    client = _client(projects=[{"id": DUPE_A, "name": "Personal"}])
+
+    def _sync(*a, **k):
+        client.state["projects"] = [
+            {"id": DUPE_A, "name": "Personal"},
+            {"id": DUPE_B, "name": "Personal"},
+        ]
+        return {}
+
+    client.sync.side_effect = _sync
+    with (
+        patch(
+            "ticktick_mcp.tools.completion_tools.TickTickClientSingleton.get_client",
+            return_value=client,
+        ),
+        patch("ticktick_mcp.tools.completion_tools.init_db"),
+        patch("ticktick_mcp.tools.completion_tools.mark_processed") as marked,
+    ):
+        result = json.loads(asyncio.run(call()))
+    assert result.get("status") == "error"
+    assert "ambiguous" in json.dumps(result)
+    marked.assert_not_called()
+
+
+def test_a_name_already_in_state_costs_no_forced_sync():
+    """The completion tools resolve, then force a refresh only if that came
+    back unresolved. Dropping the first resolve looks harmless - the re-resolve
+    after the forced sync returns the same id - so the only thing that notices
+    is the sync it did not need: a full-account fetch on every call."""
+    from ticktick_mcp.freshness import ensure_fresh as real_ensure_fresh
+
+    client = _client([{"id": WORK, "name": "Work"}])
+    client.sync.side_effect = lambda *a, **k: {}
+    real_ensure_fresh(client)  # a recent unrelated read leaves the window warm
+    client.sync.reset_mock()
+
+    with (
+        patch(
+            "ticktick_mcp.tools.completion_tools.TickTickClientSingleton.get_client",
+            return_value=client,
+        ),
+        patch("ticktick_mcp.tools.completion_tools.init_db"),
+        patch("ticktick_mcp.tools.completion_tools.is_processed", return_value=False),
+        patch("ticktick_mcp.tools.completion_tools.mark_processed"),
+    ):
+        asyncio.run(ticktick_mark_completion_processed(task_id="t1", project_id="Work"))
+    client.sync.assert_not_called()

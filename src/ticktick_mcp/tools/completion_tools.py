@@ -22,6 +22,55 @@ from ..projects import is_known_project_id, resolve_project_id
 from ..tools.filter_tools import PeriodFilter, PropertyFilter, TaskFilterer
 
 
+def _resolve_completion_project(project_id: str):
+    """Resolve ``project_id`` to a real project id, or return an error payload.
+
+    Returns ``(resolved_id, None)`` or ``(None, error_json)``.
+
+    Stricter than the other surfaces because this value is the completion
+    database's key: an unresolved one writes a row no later id-keyed read can
+    find and no tool can repair, whereas elsewhere it merely reaches the API
+    and fails there. A failed refresh is reported separately from a genuine
+    miss, so a caller is never told a project does not exist when the truth is
+    that the list could not be checked.
+    """
+    try:
+        client = TickTickClientSingleton.get_client()
+        resolved = resolve_project_id(client, project_id)
+        if not is_known_project_id(client, resolved):
+            # The resolver's own refresh is throttled, so "not known" may just
+            # mean the list is stale.
+            if not ensure_fresh(client, force=True):
+                return None, format_response(
+                    {
+                        "outcome": "project_list_unverifiable",
+                        "status": "error",
+                        "error": (
+                            "Could not refresh the project list, so this project "
+                            "reference could not be confirmed. It is the completion "
+                            "database's key, so it is not written on a guess. Retry "
+                            "once the connection recovers."
+                        ),
+                    }
+                )
+            resolved = resolve_project_id(client, resolved)
+            if not is_known_project_id(client, resolved):
+                return None, format_response(
+                    {
+                        "status": "error",
+                        "error": (
+                            f"No project matches {resolved!r}. List them with "
+                            "ticktick_get_all(search='projects')."
+                        ),
+                    }
+                )
+    except ToolLogicError as exc:
+        # One handler over both resolves: a name can become ambiguous only
+        # after the forced refresh introduces the second project.
+        return None, format_response({"error": str(exc), "status": "error"})
+    return resolved, None
+
+
 @mcp.tool()
 @require_ticktick_client
 async def ticktick_get_unprocessed_completions(
@@ -59,43 +108,9 @@ async def ticktick_get_unprocessed_completions(
             )
     """
     init_db()
-    try:
-        client = TickTickClientSingleton.get_client()
-        project_id = resolve_project_id(client, project_id)
-    except ToolLogicError as exc:
-        return format_response({"error": str(exc), "status": "error"})
-
-    # This value is the completion-DB key, so an unresolved one writes a row
-    # no later id-keyed read can find and no tool can repair. Everywhere else
-    # an unresolved value merely reaches the API and fails there.
-    if not is_known_project_id(client, project_id):
-        # The resolver's refresh is throttled, so "not known" may only mean the
-        # project list is stale. Force one before asserting the project does
-        # not exist - and if that fails, say so rather than claiming a real id
-        # is unknown, which would send a caller looking for the wrong problem.
-        if not ensure_fresh(client, force=True):
-            return format_response(
-                {
-                    "outcome": "project_list_unverifiable",
-                    "status": "error",
-                    "error": (
-                        "Could not refresh the project list, so this project reference "
-                        "could not be confirmed. It is the completion database's key, so "
-                        "it is not written on a guess. Retry once the connection recovers."
-                    ),
-                }
-            )
-        project_id = resolve_project_id(client, project_id)
-        if not is_known_project_id(client, project_id):
-            return format_response(
-                {
-                    "status": "error",
-                    "error": (
-                        f"No project matches {project_id!r}. List them with "
-                        "ticktick_get_all(search='projects')."
-                    ),
-                }
-            )
+    project_id, error = _resolve_completion_project(project_id)
+    if error is not None:
+        return error
 
     tz = get_localzone()
     end_dt = datetime.datetime.now(tz)
@@ -184,43 +199,9 @@ async def ticktick_mark_completion_processed(
             )
     """
     init_db()
-    try:
-        client = TickTickClientSingleton.get_client()
-        project_id = resolve_project_id(client, project_id)
-    except ToolLogicError as exc:
-        return format_response({"error": str(exc), "status": "error"})
-
-    # This value is the completion-DB key, so an unresolved one writes a row
-    # no later id-keyed read can find and no tool can repair. Everywhere else
-    # an unresolved value merely reaches the API and fails there.
-    if not is_known_project_id(client, project_id):
-        # The resolver's refresh is throttled, so "not known" may only mean the
-        # project list is stale. Force one before asserting the project does
-        # not exist - and if that fails, say so rather than claiming a real id
-        # is unknown, which would send a caller looking for the wrong problem.
-        if not ensure_fresh(client, force=True):
-            return format_response(
-                {
-                    "outcome": "project_list_unverifiable",
-                    "status": "error",
-                    "error": (
-                        "Could not refresh the project list, so this project reference "
-                        "could not be confirmed. It is the completion database's key, so "
-                        "it is not written on a guess. Retry once the connection recovers."
-                    ),
-                }
-            )
-        project_id = resolve_project_id(client, project_id)
-        if not is_known_project_id(client, project_id):
-            return format_response(
-                {
-                    "status": "error",
-                    "error": (
-                        f"No project matches {project_id!r}. List them with "
-                        "ticktick_get_all(search='projects')."
-                    ),
-                }
-            )
+    project_id, error = _resolve_completion_project(project_id)
+    if error is not None:
+        return error
 
     if is_processed(task_id):
         return format_response({"status": "already_processed", "task_id": task_id})
