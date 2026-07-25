@@ -21,6 +21,7 @@ raises before any API call.
 import datetime
 import logging
 import os
+import re
 from typing import Any, List, Optional, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -29,7 +30,7 @@ from ticktick.helpers.time_methods import convert_date_to_tick_tick_format
 from tzlocal import get_localzone
 
 from ..client import TickTickClientSingleton
-from ..compact import DETAIL_COMPACT, normalise_detail, render_task_list
+from ..compact import CONTENT_PREVIEW_CHARS, DETAIL_COMPACT, normalise_detail, render_task_list
 from ..freshness import ensure_fresh
 from ..helpers import (
     ToolLogicError,
@@ -151,6 +152,27 @@ class TaskObject(BaseModel):
                 continue
             if key in self.model_fields:
                 object.__setattr__(self, key, value)
+
+
+# TickTick parses these in a title rather than showing them: '#tag' creates the
+# tag on the account, '@' assigns, '~' sets a duration. Each binds to what
+# follows it, so a bare '#' or a trailing '@' is ordinary prose and must not warn.
+TITLE_MARKERS = (
+    (re.compile(r"#\w"), "#", "creates a tag on your account"),
+    (re.compile(r"@\w"), "@", "is read as an assignee"),
+    (re.compile(r"~\d"), "~", "is read as a duration"),
+)
+
+
+def _title_marker_warning(title: str) -> Optional[str]:
+    found = [(ch, effect) for rx, ch, effect in TITLE_MARKERS if rx.search(title or "")]
+    if not found:
+        return None
+    parts = ", ".join(f"{ch!r} {effect}" for ch, effect in found)
+    return (
+        f"Title contains characters parsed by TickTick as markers rather than text: "
+        f"{parts}. The title will not read back as written."
+    )
 
 
 PROTECTED_TASK_IDS_ENV = "TICKTICK_MCP_PROTECTED_TASK_IDS"
@@ -499,6 +521,23 @@ async def ticktick_create_task(
         warnings = list(verify_mutation("create", task_dict, created or {}))
         if due_date is None:
             warnings.append("No due_date set: TickTick will not trigger reminders for this task.")
+        elif all_day:
+            warnings.append(
+                "Task is all-day: TickTick will not trigger a timed reminder for it. "
+                "Set a due_date with a time instead if you want one."
+            )
+
+        marker_warning = _title_marker_warning(title)
+        if marker_warning:
+            warnings.append(marker_warning)
+
+        if content and len(content) > CONTENT_PREVIEW_CHARS:
+            warnings.append(
+                f"Content is longer than the {CONTENT_PREVIEW_CHARS}-char compact preview. "
+                "List tools return compact output by default, so the remainder will not "
+                "appear there or match a keyword search against it - keep the searchable "
+                "part first, or park the detail elsewhere and reference it."
+            )
 
         result = dict(created) if isinstance(created, dict) else {"result": created}
         if warnings:
