@@ -124,6 +124,8 @@ Names match case-insensitively, ignoring surrounding whitespace, and `"Inbox"` r
 
 The one new error is ambiguity: if two projects share a name, the call fails and names both IDs rather than picking one, since guessing would file the task somewhere you would not think to look. Anything else the server cannot resolve is passed to the API untouched, exactly as before.
 
+The two completion-tracking tools are the exception: they refuse a project reference they cannot confirm rather than passing it on, because that value is the key their local database is written under. An unresolvable one would write a row no later lookup by ID can find. If the project list could not be refreshed to check, they say so (`outcome: "project_list_unverifiable"`) instead of claiming the project does not exist.
+
 ## Listing tasks: compact by default
 
 The list-returning tools - `ticktick_get_tasks_from_project` and `ticktick_filter_tasks` - default to `detail="compact"`. Compact output keeps the browsing-relevant fields (`id`, `projectId`, `title`, `dueDate`, `startDate`, `priority`, `status`, `isAllDay`, `timeZone`, `tags`) plus a `contentPreview` (the first ~200 chars of `content`), and drops the heavy `content`/`desc`/checklist `items` blobs and bulky sync metadata. This keeps large projects under the MCP result-size cap so the client does not have to spill the result to disk. Keyword search still works against `title` and `contentPreview`.

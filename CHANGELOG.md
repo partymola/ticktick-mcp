@@ -5,9 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-07-25
+
+### Fixed
+- A project name that two projects share only *after* a refresh is now reported as an ambiguity error by the completion-tracking tools, instead of escaping as an unhandled exception. They resolve the name, force a refresh if it did not resolve, then resolve again -- and that second attempt is the first point at which the duplicate can appear, because it arrives with the sync.
+- A project entry whose ID is missing or is not a string no longer breaks name matching -- it raised `KeyError` on the first and reported a spurious ambiguity on the second. Such an entry cannot be resolved to, so it is simply not a match.
+- A task whose `parentId` is present but not a string no longer causes a spurious `protected_task` refusal. Such a parent normalised to the empty string and pooled every affected task under one key in the relation index, which a caller naming a blank or whitespace task ID then inherited -- refused, and told an unrelated task was the reason.
+- The protected-task relation guard now returns `outcome: "protection_unverifiable"` when `client.state` is not readable, rather than treating it as "no relations found". Reading an unreadable state as empty is the fail-open answer: it would let a protected task be deleted through a parent nobody named. The resolver, where nothing irreversible hangs on the answer, treats the same state as an empty project list and passes the value through untouched.
 
 ### Changed
+- With `TICKTICK_MCP_PROTECTED_TASK_IDS` set, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask` now fetch the account once per call rather than twice, whenever that fetch succeeds. If it fails the guard still retries on its own, and proceeds only if the retry lands. The relation guard forced a refresh and the tool immediately forced another, with nothing in between touching the server. TickTick rate-limits, and these are the calls least able to afford a lockout.
 - The completion-tracking tools distinguish a project they cannot find from one they cannot confirm. A failed refresh now returns `outcome: "project_list_unverifiable"` and asks for a retry, instead of asserting that a project which may well exist does not.
 - The completion-tracking tools now refuse a `project_id` they cannot resolve to a real project, instead of accepting it. That value is the completion database's key, so an unresolved one writes a row no later ID-keyed read can find and no tool can repair.
 - `ticktick_mark_completion_processed` now requires an authenticated client. It previously touched only the local completion database and worked during an auth outage or rate-limit window; it now resolves its `project_id` first, and without a client that resolution cannot run. Left ungated, a call made while auth was down would key the completion row by the project *name* — invisible to every later ID-keyed read, and not repairable by any tool. A caller passing an ID rather than a name gains the requirement without needing the resolution, which is the cost of closing that hole.
@@ -58,7 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied — the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward — such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/partymola/ticktick-mcp/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/partymola/ticktick-mcp/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/partymola/ticktick-mcp/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/partymola/ticktick-mcp/compare/v0.1.0...v0.1.1
