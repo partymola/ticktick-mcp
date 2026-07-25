@@ -38,6 +38,7 @@ ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 - Active-read tools (`ticktick_get_by_id`, `ticktick_get_tasks_from_project`, the uncompleted branch of `ticktick_filter_tasks`) sync before reading. The completed branch of the filter fetches live, so it is excluded.
 - `ticktick_update_task` / `ticktick_complete_task` force a sync before their pre-read, so the body they POST is not built on a stale snapshot.
 - `ticktick_sync` forces an immediate refresh and reports task/project counts, for when an agent needs certainty now.
+- `ticktick_get_all` calls `client.sync()` directly rather than `ensure_fresh`, so it can report the underlying failure instead of serving stale state silently. It therefore syncs unconditionally and does not update the throttle clock — a read straight after it syncs again.
 - Sync failures are fail-soft: the last-known state is served and the tool still returns, with a short backoff so a failing API does not turn every read into a tight resync loop.
 
 ## Completion & update outcomes
@@ -50,15 +51,16 @@ ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 
 Every success path is tagged, so a caller branches on `outcome` alone and never has to read warning text. That matters most for `completed_recurring`, which comes back at status 0 and reads as a failure to anything checking status.
 
-`ticktick_update_task` tags its result with an additive `outcome` in two cases:
+`ticktick_update_task` tags its result with an additive `outcome`:
 
 - `needs_project_id` when the target id is not in local sync state (`get_by_id` returns `{}`) — typically a completed recurring-history occurrence (its status-2 record is never synced locally) or an unknown id — **and** no `projectId` was supplied. Without a routable `projectId` the open-API update silently no-ops (returns `""`), so the tool skips the futile POST and asks for the one thing that makes it work: re-call with `projectId` set on the task object. A completed recurring occurrence reopens cleanly once `projectId` is supplied.
+- `updated` when the API echoed an empty response but a re-read confirms the change did land — a delayed confirmation, not a failure.
 - `no_op` when the API echoes an empty response and a re-read confirms the change did not apply. Re-read with `ticktick_get_by_id` to confirm the current state before retrying.
 - `reopen_no_effect` (an error) when the caller's only substantive change is `status:0` on a recurring task that has already rolled forward (it is back at status 0). Completing a recurring task advances the same id and files the completed instance as a separate history record, so a `status:0` "reopen" of the series id changes nothing and does **not** undo the completion — rather than let that read as success, the tool refuses and explains. Any update that also changes another field proceeds normally, so reschedules are unaffected.
 
 ## Project resolution
 
-`projects.resolve_project_id(client, value)` accepts a project name where an id is expected. It sits outside `tools/` because every tool group needs it and none of them should import another.
+`projects.resolve_project_id(client, value)` accepts a project name where an id is expected. It sits outside `tools/` because every tool group needs it. Homing it in one tool module would deepen the one cross-import there already is (`completion_tools` reaches into `filter_tools` for `TaskFilterer`) - that import is the one to stop repeating, not to copy.
 
 Contract:
 

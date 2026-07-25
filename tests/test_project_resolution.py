@@ -118,6 +118,23 @@ def test_resolution_survives_a_project_entry_missing_a_name():
     assert _resolve_project_id(client, "Home Admin") == HOME
 
 
+def test_resolution_survives_a_project_entry_missing_an_id():
+    """An entry with a name but no id cannot be resolved TO, so it is not a
+    match - and reading its id to say so must not raise out of the tool."""
+    client = _client([{"name": "Home Admin"}, {"id": HOME, "name": "Home Admin"}])
+    assert _resolve_project_id(client, "Home Admin") == HOME
+
+
+def test_a_client_whose_state_is_none_resolves_rather_than_raising():
+    """A coalesce is not the same as a default: getattr hands back the None and
+    the lookup after it raises."""
+    client = MagicMock()
+    client.state = None
+    client.inbox_id = None
+    client.sync.side_effect = lambda *a, **k: {}
+    assert _resolve_project_id(client, "Home Admin") == "Home Admin"
+
+
 # --- wired into the tools -----------------------------------------------------
 
 

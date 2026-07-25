@@ -106,6 +106,7 @@ class TaskObject(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
     id: Optional[str] = None
+    # Accepts a project name as well as an id; see AGENTS.md "Project resolution".
     projectId: Optional[str] = None
     title: Optional[str] = None
     content: Optional[str] = None
@@ -256,9 +257,16 @@ def _protected_relation_refusal(client, ids, already_fresh: bool = False) -> Opt
     # descendants, using a reverse index over local state as well as childIds:
     # a task can record its parentId without the parent listing it.
     children: dict = {}
-    for task in getattr(client, "state", {}).get("tasks") or []:
-        if isinstance(task, dict) and task.get("parentId") and task.get("id"):
-            children.setdefault(_norm_task_id(task["parentId"]), set()).add(task["id"])
+    state = getattr(client, "state", None) or {}
+    for task in state.get("tasks") or []:
+        if not isinstance(task, dict) or not isinstance(task.get("id"), str):
+            continue
+        # Keyed on the normalised parent id, which is "" for anything that is
+        # not a string. Storing those would put every orphan in one bucket and
+        # hand the whole bucket to the next id that normalises to "".
+        parent = _norm_task_id(task.get("parentId"))
+        if parent:
+            children.setdefault(parent, set()).add(task["id"])
 
     hits = set()
     for task_id in ids:
@@ -845,7 +853,10 @@ async def ticktick_delete_tasks(
             An empty list returns an error.
         project_id (str, optional): Used to construct a minimal delete
             payload when ``get_by_id`` cannot find the task locally
-            (typical for completed tasks).
+            (typical for completed tasks). Accepts the project's name as
+            well as its ID (case-insensitive, trimmed; "Inbox" resolves to
+            the inbox). Two projects sharing a name is an error, not a
+            guess.
 
     Returns:
         ``{"status": "success", "deleted_count": N, "tasks_deleted_ids":
@@ -1374,6 +1385,10 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
 
     try:
         client = TickTickClientSingleton.get_client()
+        # Deliberately a raw sync rather than ensure_fresh: this tool reports
+        # the underlying failure to the caller, and ensure_fresh is fail-soft
+        # so it swallows the reason. The cost is that the throttle clock is not
+        # updated, so a read immediately after this one syncs again.
         client.sync()
 
         key = (search or "").strip().lower()

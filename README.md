@@ -136,7 +136,7 @@ If a compact result would still exceed the size budget, the soonest-due tasks ar
 
 ## Freshness: reads stay current
 
-The TickTick account can be edited from the app on other devices while the server runs. To keep reads from going stale, the read tools re-sync server state on demand, throttled to at most once per window (default 15s, override with `TICKTICK_MCP_SYNC_TTL_SECONDS`). A change made elsewhere becomes visible within that window; call `ticktick_sync` to force an immediate refresh and get the current task/project counts. If a sync fails, the last-known state is served rather than erroring.
+The TickTick account can be edited from the app on other devices while the server runs. To keep reads from going stale, the read tools re-sync server state on demand, throttled to at most once per window (default 15s, override with `TICKTICK_MCP_SYNC_TTL_SECONDS`). A change made elsewhere becomes visible within that window; call `ticktick_sync` to force an immediate refresh and get the current task/project counts. If a sync fails, the last-known state is served rather than erroring - except in `ticktick_get_all`, which refreshes every call and reports the failure instead, since a full dump is the wrong place to serve a stale answer quietly.
 
 ## Configuration
 

@@ -1,7 +1,9 @@
 """Resolving a project reference (id or name) to a project id.
 
-Lives outside ``tools/`` because every tool group needs it and none of them
-should import another.
+Lives outside ``tools/`` because every tool group needs it. Homing it in one
+tool module would deepen the one cross-import there already is
+(``completion_tools`` reaches into ``filter_tools`` for ``TaskFilterer``),
+which is the import to stop repeating rather than to copy.
 """
 
 from __future__ import annotations
@@ -10,6 +12,17 @@ from typing import Optional
 
 from .freshness import ensure_fresh
 from .helpers import ToolLogicError
+
+
+def _project_entries(client) -> list:
+    """The project dicts in local state.
+
+    ``state`` is coalesced rather than defaulted: a client carrying it as None
+    satisfies ``getattr(client, "state", {})``, which then hands the None to
+    the lookup after it.
+    """
+    state = getattr(client, "state", None) or {}
+    return [p for p in (state.get("projects") or []) if isinstance(p, dict)]
 
 
 def is_known_project_id(client, value: Optional[str]) -> bool:
@@ -21,9 +34,7 @@ def is_known_project_id(client, value: Optional[str]) -> bool:
     """
     if not isinstance(value, str) or not value.strip():
         return False
-    projects = [
-        p for p in (getattr(client, "state", {}).get("projects") or []) if isinstance(p, dict)
-    ]
+    projects = _project_entries(client)
     known = {p.get("id") for p in projects}
     known.add(getattr(client, "inbox_id", None))
     return value.strip() in known
@@ -56,15 +67,17 @@ def resolve_project_id(client, value: Optional[str]) -> Optional[str]:
     if is_known_project_id(client, wanted):
         return wanted
 
-    projects = [
-        p for p in (getattr(client, "state", {}).get("projects") or []) if isinstance(p, dict)
-    ]
+    projects = _project_entries(client)
     inbox_id = getattr(client, "inbox_id", None)
     folded = wanted.casefold()
     matches = [
         p["id"]
         for p in projects
-        if isinstance(p.get("name"), str) and p["name"].strip().casefold() == folded
+        # An entry with no usable id cannot be resolved to, so it does not
+        # count as a match - and must not raise KeyError on the way past.
+        if isinstance(p.get("id"), str)
+        and isinstance(p.get("name"), str)
+        and p["name"].strip().casefold() == folded
     ]
     # state["projects"] is projectProfiles and excludes the inbox, so this
     # cannot double-match a user project that is also called "Inbox".

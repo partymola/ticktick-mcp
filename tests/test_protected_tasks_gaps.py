@@ -398,3 +398,38 @@ def test_a_parent_child_cycle_does_not_hang_the_guard(protect):
     ):
         asyncio.run(ticktick_delete_tasks(["aaa1"]))
     assert client.task.delete.called
+
+
+def test_orphans_with_a_non_string_parent_id_are_not_pooled_into_one_bucket(protect):
+    """The reverse index is keyed on the NORMALISED parent id, which is "" for
+    a non-string. Keying those in pools every orphan under one entry, and the
+    next id that also normalises to "" - an empty or whitespace task id from a
+    caller - inherits the whole pool and is refused for a relation it has not
+    got."""
+    client = MagicMock()
+    client.state = {
+        "tasks": [
+            {"id": PROTECTED, "projectId": "p1", "title": "Orphan", "parentId": 0.0},
+        ]
+    }
+    client.get_by_id.side_effect = lambda i, *a, **k: {}
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = json.loads(asyncio.run(ticktick_delete_tasks(["   "])))
+    assert result.get("outcome") != "protected_task"
+
+
+def test_a_client_whose_state_is_none_still_reaches_a_decision(protect):
+    """The guard has to decide on a client carrying ``state = None``, not raise
+    on it. Asserting merely that an error came back would pass on the crash too
+    - the tool catches it and returns an error payload - so this pins the
+    decision itself: nothing here is protected, so the delete runs."""
+    client = MagicMock()
+    client.state = None
+    client.get_by_id.side_effect = lambda i, *a, **k: {}
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        asyncio.run(ticktick_delete_tasks(["ffff1111ffff1111ffff1111"], project_id="p1"))
+    assert client.task.delete.called
