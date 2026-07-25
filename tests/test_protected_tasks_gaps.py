@@ -220,3 +220,181 @@ def test_directly_named_refusal_touches_the_client_not_at_all(mock_client, prote
     result = asyncio.run(MUTATIONS[name]())
     assert _refused(result)
     assert mock_client.mock_calls == [], f"{name} touched the client: {mock_client.mock_calls}"
+
+
+# --- the relation guard must decide on post-sync state -----------------------
+
+
+PARENT_ID = "dddddddddddddddddddddddd"
+
+
+def _client_learning_a_protected_subtask_on_sync():
+    """A protected subtask attached on another device: invisible in local state
+    until a sync, which is exactly the case the guard exists for."""
+    client = MagicMock()
+    stale = {"id": PARENT_ID, "projectId": "p1", "title": "Parent", "childIds": []}
+    fresh = {"id": PARENT_ID, "projectId": "p1", "title": "Parent", "childIds": [PROTECTED]}
+    state = {"seen": stale}
+
+    def _sync(*a, **k):
+        state["seen"] = fresh
+        return {}
+
+    client.sync.side_effect = _sync
+    client.get_by_id.side_effect = lambda i, *a, **k: state["seen"] if i == PARENT_ID else {}
+    client.state = {"projects": []}
+    return client
+
+
+def test_delete_refuses_a_protected_subtask_only_visible_after_syncing(protect):
+    client = _client_learning_a_protected_subtask_on_sync()
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = asyncio.run(ticktick_delete_tasks([PARENT_ID]))
+    assert _refused(result), "the guard read pre-sync state and let the delete through"
+    client.task.delete.assert_not_called()
+
+
+def test_move_refuses_a_protected_subtask_only_visible_after_syncing(protect):
+    client = _client_learning_a_protected_subtask_on_sync()
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = asyncio.run(ticktick_move_task(PARENT_ID, "p2"))
+    assert _refused(result)
+    client.task.move.assert_not_called()
+
+
+def test_make_subtask_refuses_a_protected_subtask_only_visible_after_syncing(protect):
+    """make_subtask never had a sync of its own. It inherits one now because
+    the guard owns its freshness, which is the point of moving it there."""
+    client = _client_learning_a_protected_subtask_on_sync()
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = asyncio.run(ticktick_make_subtask(PARENT_ID, OTHER))
+    assert _refused(result)
+    client.task.make_subtask.assert_not_called()
+
+
+def test_the_guard_costs_no_sync_when_nothing_is_protected(mock_client, monkeypatch):
+    """The guard short-circuits before syncing, so an operator who never sets
+    the variable pays nothing for a feature they do not use. Asserted on the
+    guard rather than on a tool: the tools sync for their own pre-reads
+    regardless, which would mask this."""
+    monkeypatch.setattr(task_tools, "PROTECTED_TASK_IDS", frozenset())
+    assert task_tools._protected_relation_refusal(mock_client, ["t1"]) is None
+    assert not mock_client.sync.called
+
+
+def test_the_guard_forces_a_sync_rather_than_honouring_the_throttle(protect):
+    """A throttled sync is not good enough here. Another tool syncing seconds
+    earlier would let the guard serve a snapshot from before the protected
+    subtask was attached, and the delete it then permits cannot be undone."""
+    from ticktick_mcp.freshness import ensure_fresh
+
+    client = _client_learning_a_protected_subtask_on_sync()
+    # Something else syncs first, opening the throttle window.
+    client.sync.side_effect = lambda *a, **k: {}
+    ensure_fresh(client)
+
+    # Only now does the protected subtask appear server-side.
+    fresh = {"id": PARENT_ID, "projectId": "p1", "title": "Parent", "childIds": [PROTECTED]}
+    seen = {"task": {"id": PARENT_ID, "projectId": "p1", "title": "Parent", "childIds": []}}
+
+    def _sync(*a, **k):
+        seen["task"] = fresh
+        return {}
+
+    client.sync.side_effect = _sync
+    client.get_by_id.side_effect = lambda i, *a, **k: seen["task"] if i == PARENT_ID else {}
+
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = asyncio.run(ticktick_delete_tasks([PARENT_ID]))
+    assert _refused(result), "the throttle served a pre-subtask snapshot to the guard"
+    client.task.delete.assert_not_called()
+
+
+def test_the_guard_refuses_when_it_cannot_refresh(protect, monkeypatch):
+    """ensure_fresh is fail-soft, so a failure leaves an arbitrarily old
+    snapshot. Deciding on it would fail OPEN on a delete that cannot be
+    undone; a refusal is recoverable."""
+    monkeypatch.setattr(task_tools, "ensure_fresh", lambda *a, **k: False)
+    client = MagicMock()
+    client.get_by_id.return_value = {"id": "t1", "projectId": "p1", "title": "T"}
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = json.loads(asyncio.run(ticktick_delete_tasks(["t1"])))
+    assert result.get("outcome") == "protection_unverifiable"
+    client.task.delete.assert_not_called()
+
+
+GRANDCHILD_PARENT = "eeeeeeeeeeeeeeeeeeeeeeee"
+MIDDLE = "ffffffffffffffffffffffff"
+
+
+def test_delete_refuses_a_protected_grandchild(protect):
+    """TickTick propagates a delete through the whole subtree, so checking only
+    the named task's own childIds destroys a protected task two levels down."""
+    tree = {
+        GRANDCHILD_PARENT: {
+            "id": GRANDCHILD_PARENT,
+            "projectId": "p1",
+            "title": "Top",
+            "childIds": [MIDDLE],
+        },
+        MIDDLE: {"id": MIDDLE, "projectId": "p1", "title": "Middle", "childIds": [PROTECTED]},
+    }
+    client = MagicMock()
+    client.state = {"tasks": list(tree.values())}
+    client.get_by_id.side_effect = lambda i, *a, **k: tree.get(i, {})
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = json.loads(asyncio.run(ticktick_delete_tasks([GRANDCHILD_PARENT])))
+    assert result.get("outcome") == "protected_task"
+    client.task.delete.assert_not_called()
+
+
+def test_a_descendant_recorded_only_by_its_own_parent_id_is_found(protect):
+    """A task can carry parentId without the parent listing it in childIds, so
+    childIds alone is not a complete view of the subtree."""
+    client = MagicMock()
+    client.state = {
+        "tasks": [
+            {"id": GRANDCHILD_PARENT, "projectId": "p1", "title": "Top"},
+            {
+                "id": PROTECTED,
+                "projectId": "p1",
+                "title": "Hidden child",
+                "parentId": GRANDCHILD_PARENT,
+            },
+        ]
+    }
+    client.get_by_id.side_effect = lambda i, *a, **k: next(
+        (t for t in client.state["tasks"] if t["id"] == i), {}
+    )
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        result = json.loads(asyncio.run(ticktick_delete_tasks([GRANDCHILD_PARENT])))
+    assert result.get("outcome") == "protected_task"
+    client.task.delete.assert_not_called()
+
+
+def test_a_parent_child_cycle_does_not_hang_the_guard(protect):
+    """Malformed state must not spin the descendant walk forever."""
+    client = MagicMock()
+    a = {"id": "aaa1", "projectId": "p1", "title": "A", "childIds": ["bbb1"]}
+    b = {"id": "bbb1", "projectId": "p1", "title": "B", "childIds": ["aaa1"]}
+    client.state = {"tasks": [a, b]}
+    client.get_by_id.side_effect = lambda i, *x, **k: {"aaa1": a, "bbb1": b}.get(i, {})
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        asyncio.run(ticktick_delete_tasks(["aaa1"]))
+    assert client.task.delete.called

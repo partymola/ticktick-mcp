@@ -112,6 +112,18 @@ The server has no other subcommands - it is the MCP server. All task operations 
 | `ticktick_mark_completion_processed` | Record that a completed task has been reviewed, excluding it from future checks |
 | `ticktick_convert_datetime_to_ticktick_format` | Convert an ISO 8601 datetime + IANA timezone to TickTick's wire format |
 
+## Projects: name or ID
+
+Every tool that takes a project ID also takes the project's **name** - `ticktick_create_task`, `ticktick_get_tasks_from_project`, `ticktick_update_task`, `ticktick_move_task`, `ticktick_delete_tasks`, `ticktick_filter_tasks`, and both completion-tracking tools:
+
+```
+ticktick_create_task(title="Renew insurance", project_id="Home Admin")
+```
+
+Names match case-insensitively, ignoring surrounding whitespace, and `"Inbox"` resolves to your inbox. IDs keep working unchanged and always win, so nothing that works today changes.
+
+The one new error is ambiguity: if two projects share a name, the call fails and names both IDs rather than picking one, since guessing would file the task somewhere you would not think to look. Anything else the server cannot resolve is passed to the API untouched, exactly as before.
+
 ## Listing tasks: compact by default
 
 The list-returning tools - `ticktick_get_tasks_from_project` and `ticktick_filter_tasks` - default to `detail="compact"`. Compact output keeps the browsing-relevant fields (`id`, `projectId`, `title`, `dueDate`, `startDate`, `priority`, `status`, `isAllDay`, `timeZone`, `tags`) plus a `contentPreview` (the first ~200 chars of `content`), and drops the heavy `content`/`desc`/checklist `items` blobs and bulky sync metadata. This keeps large projects under the MCP result-size cap so the client does not have to spill the result to disk. Keyword search still works against `title` and `contentPreview`.
@@ -146,7 +158,7 @@ TICKTICK_MCP_PROTECTED_TASK_IDS="60ca9dbc8f08516d9dd56324,60ca9dbc8f08516d9dd563
 
 `ticktick_update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask` then refuse any call naming a protected task, returning `outcome: "protected_task"`. No request that reads or writes the task is sent. A batch delete containing a protected ID is refused in full rather than partially applied, since a partial delete cannot be undone.
 
-Because TickTick propagates delete and move through subtasks, `delete`, `move` and `make_subtask` also refuse when a protected task is the parent or the subtask of a task you named. That check reads already-synced local state, so it costs no extra request; it cannot see relations that state does not hold. IDs are matched ignoring surrounding whitespace, quotes and case. Reading protected tasks always works.
+Because TickTick propagates delete and move through subtasks, `delete`, `move` and `make_subtask` also refuse when a protected task is the parent or the subtask of a task you named. That check refreshes local state first, so it adds one request per delete, move or reparent while protection is configured — and returns `outcome: "protection_unverifiable"` if that refresh fails, since it cannot rule out a protected subtask on a snapshot it could not update. With the variable unset it does no extra work at all. IDs are matched ignoring surrounding whitespace, quotes and case. Reading protected tasks always works.
 
 Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_URI`, `TICKTICK_USERNAME`, `TICKTICK_PASSWORD`) are read from the `.env` file or, if absent, directly from the environment.
 

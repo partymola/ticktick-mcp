@@ -31,11 +31,13 @@ from ..client import TickTickClientSingleton
 from ..compact import DETAIL_COMPACT, normalise_detail, render_task_list
 from ..freshness import ensure_fresh
 from ..helpers import (
+    ToolLogicError,
     _get_all_tasks_from_ticktick,
     format_response,
     require_ticktick_client,
 )
 from ..mcp_instance import mcp
+from ..projects import resolve_project_id
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +431,9 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
               ``completion_start_date`` and/or ``completion_end_date``;
               without dates the result is an empty list.
             * ``project_id`` (str): Limit to tasks in this project.
+              Accepts the project's name as well as its ID
+              (case-insensitive, trimmed). Two projects sharing a
+              name is an error, not a guess.
             * ``priority`` (int): 0=None, 1=Low, 3=Medium, 5=High.
             * ``tag_label`` (str): Tag name (case-sensitive).
             * ``due_start_date`` / ``due_end_date`` (str): ISO date or
@@ -487,16 +492,20 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
         return format_response({"error": str(exc), "status": "error"})
 
     try:
-        # Uncompleted tasks are read from local sync state, so refresh it
-        # first. The completed branch fetches live via get_completed and
-        # needs no sync.
+        client = TickTickClientSingleton.get_client()
+
+        property_filter.project_id = resolve_project_id(client, property_filter.project_id)
+
+        # The completed branch fetches live via get_completed and needs no sync.
         if property_filter.status != "completed":
-            ensure_fresh(TickTickClientSingleton.get_client())
+            ensure_fresh(client)
         results = await TaskFilterer().filter(
             property_filter=property_filter,
             sort_by_priority=sort_by_priority,
             tz_info=tz_info,
         )
+    except ToolLogicError as exc:
+        return format_response({"error": str(exc), "status": "error"})
     except ConnectionError as exc:
         return format_response({"error": str(exc), "status": "error"})
     except ValueError as exc:

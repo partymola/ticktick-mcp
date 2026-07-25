@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ticktick_mcp.compact import CONTENT_PREVIEW_CHARS
+from ticktick_mcp.tools import task_tools
 from ticktick_mcp.tools.task_tools import ticktick_create_task
 
 DUE = "2027-03-15T20:45:00+00:00"
@@ -57,6 +58,29 @@ def test_all_day_warning_is_separate_from_the_dateless_one(mock_client):
     dateless = asyncio.run(ticktick_create_task(title="T"))
     assert _has(dateless, "No due_date set")
     assert not _has(dateless, "all-day")
+
+
+@pytest.mark.parametrize("key", ["allDay", "isAllDay"])
+def test_all_day_inferred_by_the_builder_warns(mock_client, key):
+    """ticktick-py sets all-day itself when start and due are both midnight, so
+    a caller can get one without ever passing all_day=True - the only case they
+    do not already know about. Each signal is set alone: setting them together
+    lets any one of them be deleted while the others cover for it."""
+    mock_client.task.builder.return_value = {"title": "T", key: True}
+    result = asyncio.run(
+        ticktick_create_task(title="T", due_date=DUE, expected_day_of_week="Monday")
+    )
+    assert _has(result, "all-day")
+
+
+@pytest.mark.parametrize("key", ["allDay", "isAllDay"])
+def test_all_day_seen_only_in_the_server_echo_warns(mock_client, key):
+    """The task can come back all-day even when nothing we sent said so."""
+    mock_client.task.create.return_value = {"id": "t1", "title": "T", key: True}
+    result = asyncio.run(
+        ticktick_create_task(title="T", due_date=DUE, expected_day_of_week="Monday")
+    )
+    assert _has(result, "all-day")
 
 
 def test_all_day_false_is_not_treated_as_all_day(mock_client):
@@ -147,9 +171,31 @@ def test_no_content_does_not_warn(mock_client):
     assert not _has(result, "compact")
 
 
-def test_threshold_tracks_the_shared_constant_not_a_copy(mock_client):
-    """The boundary must come from compact.py. A duplicated literal drifts the
-    day the preview window changes, and the warning goes quiet or cries wolf."""
-    from ticktick_mcp import compact
+def _create_with_content(chars):
+    client = MagicMock()
+    client.task.builder.return_value = {"title": "T"}
+    client.task.create.return_value = {"id": "t1", "title": "T"}
+    with patch(
+        "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+    ):
+        return asyncio.run(
+            ticktick_create_task(
+                title="T", content="x" * chars, due_date=DUE, expected_day_of_week="Monday"
+            )
+        )
 
-    assert CONTENT_PREVIEW_CHARS is compact.CONTENT_PREVIEW_CHARS
+
+def test_threshold_follows_the_constant_when_it_moves(monkeypatch):
+    """Move the constant and the boundary must move with it. Comparing the
+    imported constant to itself passes no matter what task_tools does; this
+    observes the behaviour instead."""
+    monkeypatch.setattr(task_tools, "CONTENT_PREVIEW_CHARS", 10)
+    assert _has(_create_with_content(11), "compact"), "11 chars must trip a 10-char window"
+    assert not _has(_create_with_content(10), "compact"), "10 chars must not"
+
+
+def test_threshold_message_quotes_the_live_constant(monkeypatch):
+    """A hardcoded number in the message drifts out of step with the window it
+    claims to describe."""
+    monkeypatch.setattr(task_tools, "CONTENT_PREVIEW_CHARS", 10)
+    assert any("10-char" in w for w in _warnings(_create_with_content(11)))

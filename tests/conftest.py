@@ -48,6 +48,12 @@ sys.modules["ticktick_mcp.mcp_instance"] = fake_mcp_module
 # Mock the require_ticktick_client decorator to be a no-op
 import ticktick_mcp.helpers as helpers_module  # noqa: E402
 
+# Stash the real decorator before clobbering it. test_helpers.py needs it to
+# test the genuine implementation; without this it had to importlib.reload the
+# module, which rebinds every other name too -- including ToolLogicError, so an
+# `except ToolLogicError` elsewhere stopped matching and the suite became
+# order-dependent.
+helpers_module._original_require_ticktick_client = helpers_module.require_ticktick_client
 helpers_module.require_ticktick_client = lambda f: f
 
 import pytest  # noqa: E402

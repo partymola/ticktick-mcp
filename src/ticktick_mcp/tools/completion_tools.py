@@ -13,9 +13,12 @@ from typing import Optional
 
 from tzlocal import get_localzone
 
+from ..client import TickTickClientSingleton
 from ..completion_db import get_processed_ids_for_project, init_db, is_processed, mark_processed
-from ..helpers import format_response, require_ticktick_client
+from ..freshness import ensure_fresh
+from ..helpers import ToolLogicError, format_response, require_ticktick_client
 from ..mcp_instance import mcp
+from ..projects import is_known_project_id, resolve_project_id
 from ..tools.filter_tools import PeriodFilter, PropertyFilter, TaskFilterer
 
 
@@ -34,7 +37,10 @@ async def ticktick_get_unprocessed_completions(
     ticktick_mark_completion_processed to record that it has been handled.
 
     Args:
-        project_id (str): TickTick project ID to check. Required.
+        project_id (str): TickTick project ID or name to check. Required.
+            Accepts the project's name as well as its ID
+            (case-insensitive, trimmed; "Inbox" resolves to the inbox).
+            Two projects sharing a name is an error, not a guess.
         days (int): How many days back to look for completions. Default 30.
 
     Returns:
@@ -53,6 +59,43 @@ async def ticktick_get_unprocessed_completions(
             )
     """
     init_db()
+    try:
+        client = TickTickClientSingleton.get_client()
+        project_id = resolve_project_id(client, project_id)
+    except ToolLogicError as exc:
+        return format_response({"error": str(exc), "status": "error"})
+
+    # This value is the completion-DB key, so an unresolved one writes a row
+    # no later id-keyed read can find and no tool can repair. Everywhere else
+    # an unresolved value merely reaches the API and fails there.
+    if not is_known_project_id(client, project_id):
+        # The resolver's refresh is throttled, so "not known" may only mean the
+        # project list is stale. Force one before asserting the project does
+        # not exist - and if that fails, say so rather than claiming a real id
+        # is unknown, which would send a caller looking for the wrong problem.
+        if not ensure_fresh(client, force=True):
+            return format_response(
+                {
+                    "outcome": "project_list_unverifiable",
+                    "status": "error",
+                    "error": (
+                        "Could not refresh the project list, so this project reference "
+                        "could not be confirmed. It is the completion database's key, so "
+                        "it is not written on a guess. Retry once the connection recovers."
+                    ),
+                }
+            )
+        project_id = resolve_project_id(client, project_id)
+        if not is_known_project_id(client, project_id):
+            return format_response(
+                {
+                    "status": "error",
+                    "error": (
+                        f"No project matches {project_id!r}. List them with "
+                        "ticktick_get_all(search='projects')."
+                    ),
+                }
+            )
 
     tz = get_localzone()
     end_dt = datetime.datetime.now(tz)
@@ -99,6 +142,7 @@ async def ticktick_get_unprocessed_completions(
 
 
 @mcp.tool()
+@require_ticktick_client
 async def ticktick_mark_completion_processed(
     task_id: str,
     project_id: str,
@@ -115,7 +159,10 @@ async def ticktick_mark_completion_processed(
 
     Args:
         task_id (str): Full TickTick task ID. Required.
-        project_id (str): Project ID the task belongs to. Required.
+        project_id (str): Project ID or name the task belongs to. Required.
+            Accepts the project's name as well as its ID
+            (case-insensitive, trimmed; "Inbox" resolves to the inbox).
+            Two projects sharing a name is an error, not a guess.
         title (str, optional): Task title (stored for human-readable audit trail).
         completed_time (str, optional): ISO completion timestamp from the task object.
         notes (str, optional): Brief notes on how the completion was handled.
@@ -137,6 +184,43 @@ async def ticktick_mark_completion_processed(
             )
     """
     init_db()
+    try:
+        client = TickTickClientSingleton.get_client()
+        project_id = resolve_project_id(client, project_id)
+    except ToolLogicError as exc:
+        return format_response({"error": str(exc), "status": "error"})
+
+    # This value is the completion-DB key, so an unresolved one writes a row
+    # no later id-keyed read can find and no tool can repair. Everywhere else
+    # an unresolved value merely reaches the API and fails there.
+    if not is_known_project_id(client, project_id):
+        # The resolver's refresh is throttled, so "not known" may only mean the
+        # project list is stale. Force one before asserting the project does
+        # not exist - and if that fails, say so rather than claiming a real id
+        # is unknown, which would send a caller looking for the wrong problem.
+        if not ensure_fresh(client, force=True):
+            return format_response(
+                {
+                    "outcome": "project_list_unverifiable",
+                    "status": "error",
+                    "error": (
+                        "Could not refresh the project list, so this project reference "
+                        "could not be confirmed. It is the completion database's key, so "
+                        "it is not written on a guess. Retry once the connection recovers."
+                    ),
+                }
+            )
+        project_id = resolve_project_id(client, project_id)
+        if not is_known_project_id(client, project_id):
+            return format_response(
+                {
+                    "status": "error",
+                    "error": (
+                        f"No project matches {project_id!r}. List them with "
+                        "ticktick_get_all(search='projects')."
+                    ),
+                }
+            )
 
     if is_processed(task_id):
         return format_response({"status": "already_processed", "task_id": task_id})

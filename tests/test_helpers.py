@@ -11,7 +11,6 @@ restore the conftest patch so other test files aren't affected.
 
 import asyncio
 import datetime
-import importlib
 import json
 import logging
 from unittest.mock import MagicMock, patch
@@ -21,13 +20,10 @@ import pytest
 import ticktick_mcp.helpers as helpers_module
 
 # --- Capture the *original* require_ticktick_client before it gets clobbered ---
-# conftest.py replaced this attribute on the module with `lambda f: f`. Reload
-# to recover the real implementation, then restore the no-op patch so existing
-# tests that depend on it continue to work.
-_saved_noop_decorator = helpers_module.require_ticktick_client
-importlib.reload(helpers_module)
-_real_require_ticktick_client = helpers_module.require_ticktick_client
-helpers_module.require_ticktick_client = _saved_noop_decorator
+# conftest.py replaced this attribute with `lambda f: f` and stashed the real
+# one first. Reloading to recover it would rebind every other name in the module
+# -- notably ToolLogicError -- and make the suite order-dependent.
+_real_require_ticktick_client = helpers_module._original_require_ticktick_client
 
 # Pull in everything else after reload settles
 from ticktick_mcp.helpers import (  # noqa: E402

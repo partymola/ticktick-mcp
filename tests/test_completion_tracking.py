@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -169,6 +170,23 @@ class TestGetProcessedIdsForProject:
 
 
 class TestMarkCompletionProcessedTool:
+    @pytest.fixture(autouse=True)
+    def _known_projects(self):
+        """The tool resolves project_id now, and refuses a value it cannot
+        match, because that value is the DB key. These tests predate that, so
+        give them a client that knows the projects they use."""
+        client = MagicMock()
+        client.state = {
+            "projects": [{"id": p, "name": p} for p in ("projA", "projB", "projC")],
+            "tasks": [],
+        }
+        client.inbox_id = "inbox1"
+        with patch(
+            "ticktick_mcp.tools.completion_tools.TickTickClientSingleton.get_client",
+            return_value=client,
+        ):
+            yield client
+
     def test_returns_ok_on_first_call(self, isolated_db):
         from ticktick_mcp.tools.completion_tools import ticktick_mark_completion_processed
 

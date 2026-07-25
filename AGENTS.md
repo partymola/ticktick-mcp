@@ -56,12 +56,33 @@ Every success path is tagged, so a caller branches on `outcome` alone and never 
 - `no_op` when the API echoes an empty response and a re-read confirms the change did not apply. Re-read with `ticktick_get_by_id` to confirm the current state before retrying.
 - `reopen_no_effect` (an error) when the caller's only substantive change is `status:0` on a recurring task that has already rolled forward (it is back at status 0). Completing a recurring task advances the same id and files the completed instance as a separate history record, so a `status:0` "reopen" of the series id changes nothing and does **not** undo the completion — rather than let that read as success, the tool refuses and explains. Any update that also changes another field proceeds normally, so reschedules are unaffected.
 
+## Project resolution
+
+`projects.resolve_project_id(client, value)` accepts a project name where an id is expected. It sits outside `tools/` because every tool group needs it and none of them should import another.
+
+Contract:
+
+- **Ids win.** A value matching a known project id (or the inbox id) short-circuits before name matching. The only case where this is load-bearing is a project *named* with another project's id — without it, that resolves to the wrong project.
+- Names match case-insensitively after trimming. `state["projects"]` is `projectProfiles` and excludes the inbox, so the `"Inbox"` special-case cannot double-match a user project of the same name.
+- **Ambiguity raises**, naming every candidate id. Sync order is not a tie-break anyone chose, and a wrong answer files the task where the caller will not look.
+- **Everything else passes through untouched.** Local state lags and id formats are the server's business; rejecting an unrecognised value would break callers that work today. That makes the change purely additive apart from the ambiguity raise.
+
+Called by every surface that takes a project id: `create_task`, `get_tasks_from_project`, `delete_tasks`, `move_task`, `update_task` (its `projectId` field), `filter_tasks`, and both completion tools — where the value is also the completion-DB key, so resolving keeps name-callers and id-callers on one key.
+
+**Freshness belongs to the reader, not the caller.** The resolver reads `client.state["projects"]`, which only `sync()` repopulates, so a stale snapshot makes a name fall through untouched and then match nothing — `filter_tasks` returned an empty list with no error, which reads as a real answer. `resolve_project_id` therefore calls `ensure_fresh` itself, and only when it has a name to match: an id short-circuits before any sync, so id callers pay nothing and the completed branch of `filter_tasks` stays sync-free. `_protected_relation_refusal` does the same with `force=True`, after its own no-protection short-circuit.
+
+**Do not add an `ensure_fresh` before either of them at a call site.** That requirement was enforced by convention across eight sites and five of them got it wrong — placed after the guard it was meant to protect, or omitted entirely. It now lives inside the two functions that need it, so a ninth surface inherits it by calling them. The `ensure_fresh` calls that remain in the tools serve their own reads and are unrelated to resolution — do not remove these either. In full: the task fetch in `get_tasks_from_project`; the lookup in `get_by_id`; the uncompleted branch of `filter_tasks`; and the forced pre-read in `update_task`, `complete_task`, `delete_tasks`, `move_task` and `make_subtask`. The last three matter most and were each deleted once: `delete_tasks` falls back to the caller's `projectId` when a task is missing from the snapshot, so it deletes from the wrong project and reports success; `move_task` takes `fromProjectId` out of the fetched body; `make_subtask` reads both ends. All five force rather than throttle, because a mutation posts back what it read and a 15-second-old snapshot is enough to get it wrong.
+
+One consequence worth keeping in mind when editing the resolver: the id short-circuit runs on pre-sync state, so the sync can introduce the very project an id belongs to. There is a second id check after the sync for that reason — without it the id falls through to name matching and a project *named* with that id string wins it.
+
+**The raise must be caught in each caller.** `ToolLogicError` is deliberately not a `ValueError` subclass, so a tool whose `except` only lists `ValueError` lets an ambiguous name escape as an unhandled exception instead of an error response. `tests/test_project_resolution.py` parametrises an ambiguity probe over every surface for exactly this reason — it is the cheapest check that the wiring exists *and* that its error path works.
+
 ## Protected tasks
 
-`TICKTICK_MCP_PROTECTED_TASK_IDS` (space- or comma-separated) names tasks no mutating tool may change. The guard is two stages, both in `task_tools.py`, and both return `outcome: "protected_task"`:
+`TICKTICK_MCP_PROTECTED_TASK_IDS` (space- or comma-separated) names tasks no mutating tool may change. The guard is two stages, both in `task_tools.py`. Both return `outcome: "protected_task"` on a hit; the second can also return `outcome: "protection_unverifiable"` when it cannot refresh local state and therefore cannot rule a protected relation in or out:
 
 - **`_protected_refusal(ids)`** — a pure id comparison, the first statement of `update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask`.
-- **`_protected_relation_refusal(client, ids)`** — catches a protected task reached through a task nobody named. TickTick propagates delete and move through subtasks, and a reparent restructures a task that was not an argument. Runs in `delete`, `move` and `make_subtask` off already-synced local state, so it costs no extra request.
+- **`_protected_relation_refusal(client, ids)`** — catches a protected task reached through a task nobody named. TickTick propagates delete and move through subtasks, and a reparent restructures a task that was not an argument. Runs in `delete`, `move` and `make_subtask`. Forces a refresh itself before deciding, so it adds one request per call while protection is configured and none when it is not; if that refresh fails it refuses rather than deciding on a snapshot it could not update, because a wrong answer here permits a delete that cannot be undone.
 
 Invariants, each pinned by a test in `tests/test_protected_tasks.py` or `tests/test_protected_tasks_gaps.py`, and each verified to fail against a deliberately broken build:
 
@@ -82,3 +103,4 @@ When adding a mutating tool, add both guards and a refusal test with it.
 - Async tools are tested via `asyncio.run()` wrapper.
 - Mock `TickTickClientSingleton.get_client()` for all tests; never hit the live API.
 - Group tests by behaviour class in `tests/test_*.py`.
+- **Never `importlib.reload` a module other modules have already imported from.** Reload rebinds every name, so a class like `ToolLogicError` becomes a second object while everything that imported it earlier keeps the first. `except ToolLogicError` then stops matching a real raise, and the suite turns order-dependent — green alone, red in full, or the reverse. `tests/conftest.py` stashes `_original_require_ticktick_client` before patching so `test_helpers.py` can test the real decorator without reloading; do the same for anything else conftest clobbers.

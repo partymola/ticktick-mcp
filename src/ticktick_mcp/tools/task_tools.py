@@ -39,6 +39,7 @@ from ..helpers import (
     require_ticktick_client,
 )
 from ..mcp_instance import mcp
+from ..projects import resolve_project_id as _resolve_project_id
 from ..verification import verify_mutation
 
 logger = logging.getLogger(__name__)
@@ -222,29 +223,69 @@ def _protected_relation_refusal(client, ids) -> Optional[str]:
 
     TickTick propagates delete/move through subtasks and lets a reparent
     restructure a task nobody named, so an id check alone leaves a protected
-    task reachable via its parent. Resolution uses the already-synced local
-    state, so this costs no additional request.
+    task reachable via its parent.
+
+    Forces a refresh itself, and refuses if that fails. The parent/child links
+    come out of local state, so on a snapshot it could not update the guard
+    cannot rule out a subtask attached elsewhere, and the delete it would
+    otherwise allow is not reversible. Owning the refresh here means no caller
+    has to place it correctly. Costs nothing when no task is protected: the
+    check below short-circuits first.
     """
     if not PROTECTED_TASK_IDS or client is None:
         return None
+    if not ensure_fresh(client, force=True):
+        # ensure_fresh is fail-soft, so a failure leaves state at whatever it
+        # was - arbitrarily old on a long-lived server. Refuse rather than
+        # decide on it: a refusal is recoverable, the delete it would allow
+        # is not.
+        return format_response(
+            {
+                "outcome": "protection_unverifiable",
+                "error": (
+                    "Refused: local state could not be refreshed, so a protected task "
+                    "hanging off this one could not be ruled out. Retry once the "
+                    "connection recovers."
+                ),
+            }
+        )
+    # TickTick propagates a delete through the whole subtree, so checking only
+    # the named task's own childIds would miss a protected grandchild. Walk the
+    # descendants, using a reverse index over local state as well as childIds:
+    # a task can record its parentId without the parent listing it.
+    children: dict = {}
+    for task in getattr(client, "state", {}).get("tasks") or []:
+        if isinstance(task, dict) and task.get("parentId") and task.get("id"):
+            children.setdefault(_norm_task_id(task["parentId"]), set()).add(task["id"])
+
     hits = set()
     for task_id in ids:
         if not isinstance(task_id, str):
             continue
-        try:
-            task = client.get_by_id(task_id)
-        except Exception:  # a lookup failure must not open the guard
-            continue
-        if not isinstance(task, dict):
-            continue
-        related = list(task.get("childIds") or [])
-        parent = task.get("parentId")
-        if parent:
-            related.append(parent)
-        hits |= {_norm_task_id(r) for r in related} & PROTECTED_TASK_IDS
+        seen: set = set()
+        frontier = [task_id]
+        while frontier:
+            current = frontier.pop()
+            key = _norm_task_id(current)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                task = client.get_by_id(current)
+            except Exception:  # a lookup failure must not open the guard
+                task = None
+            descendants = set(children.get(key, ()))
+            if isinstance(task, dict):
+                descendants |= {c for c in (task.get("childIds") or []) if isinstance(c, str)}
+                # The named task's own parent is restructured by a reparent,
+                # but a descendant's parent is inside the subtree already.
+                if current == task_id and task.get("parentId"):
+                    hits |= {_norm_task_id(task["parentId"])} & PROTECTED_TASK_IDS
+            hits |= {_norm_task_id(d) for d in descendants} & PROTECTED_TASK_IDS
+            frontier.extend(d for d in descendants if _norm_task_id(d) not in seen)
     if not hits:
         return None
-    return _refusal_payload(sorted(hits), "a parent or subtask of the task you named")
+    return _refusal_payload(sorted(hits), "a parent or descendant of the task you named")
 
 
 def _refusal_payload(hits: list, relation: str) -> str:
@@ -404,7 +445,10 @@ async def ticktick_create_task(
 
     Args:
         title (str): Task title. Required.
-        project_id (str, optional): Project ID. Defaults to inbox.
+        project_id (str, optional): Project ID or name. Defaults to inbox.
+            Accepts the project's name as well as its ID
+            (case-insensitive, trimmed; "Inbox" resolves to the inbox).
+            Two projects sharing a name is an error, not a guess.
         content (str, optional): Long-form content (markdown supported).
         desc (str, optional): Short description / checklist subtitle.
         all_day (bool, optional): True for all-day tasks.
@@ -436,7 +480,8 @@ async def ticktick_create_task(
 
     Agent Usage Guide:
         - Always pair ``due_date`` with ``expected_day_of_week``.
-        - Look up a project ID with ticktick_get_all(search="projects").
+        - Pass a project name directly, or list ids with
+          ticktick_get_all(search="projects").
 
     Example:
         ticktick_create_task(
@@ -451,6 +496,7 @@ async def ticktick_create_task(
     client = TickTickClientSingleton.get_client()
 
     try:
+        project_id = _resolve_project_id(client, project_id)
         # --- Date parsing first, so bad input surfaces with a clear error. ---
         tz_for_dates = time_zone or _local_tz_name()
         start_dt: Optional[datetime.datetime] = None
@@ -519,9 +565,19 @@ async def ticktick_create_task(
         created = client.task.create(task_dict)
 
         warnings = list(verify_mutation("create", task_dict, created or {}))
+        # Read all-day off what was built and created, not off the request:
+        # ticktick-py infers it when start and due are both exact midnight, so
+        # a caller who never passed all_day can still get an all-day task, and
+        # that is the case they cannot already know about.
+        landed_all_day = bool(
+            all_day
+            or task_dict.get("allDay")
+            or task_dict.get("isAllDay")
+            or (isinstance(created, dict) and (created.get("isAllDay") or created.get("allDay")))
+        )
         if due_date is None:
             warnings.append("No due_date set: TickTick will not trigger reminders for this task.")
-        elif all_day:
+        elif landed_all_day:
             warnings.append(
                 "Task is all-day: TickTick will not trigger a timed reminder for it. "
                 "Set a due_date with a time instead if you want one."
@@ -637,6 +693,10 @@ async def update_task(task_object: TaskObject) -> str:
         # Sync before reading the task we are about to overlay-and-POST: an
         # update built on a stale snapshot can re-POST stale fields.
         ensure_fresh(client, force=True)
+
+        if task_object.projectId:
+            task_object.projectId = _resolve_project_id(client, task_object.projectId)
+
         existing = client.get_by_id(task_object.id)
         if not isinstance(existing, dict):
             return format_response(
@@ -814,6 +874,18 @@ async def ticktick_delete_tasks(
         if relation_refusal is not None:
             return relation_refusal
 
+        project_id = _resolve_project_id(client, project_id)
+
+        # Serves the per-id pre-read below, not resolution. A task missing from
+        # a stale snapshot falls to the project_id branch, which deletes using
+        # the caller's project rather than the task's own and still reports
+        # success.
+        # Forced, like update_task and complete_task: the per-id pre-read below
+        # builds the delete payload, and a task missing from a snapshot inside
+        # the throttle window falls to the caller's projectId instead of its
+        # own - deleting from the wrong project and reporting success.
+        ensure_fresh(client, force=True)
+
         input_was_string = isinstance(task_ids, str)
 
         if not ids:
@@ -885,9 +957,10 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
     """Return every open task in a project.
 
     Args:
-        project_id (str): The project's ID. For the inbox, pass the
-            value of ``client.inbox_id`` (look it up via
-            ``ticktick_get_all(search="projects")``).
+        project_id (str): The project's ID or name. Accepts the project's name as well as its ID
+            (case-insensitive, trimmed; "Inbox" resolves to the inbox).
+            Two projects sharing a name is an error, not a guess.
+            List them with ``ticktick_get_all(search="projects")``.
         detail (str, optional): ``"compact"`` (default) or ``"full"``.
             Compact drops the heavy ``content``/``desc``/checklist
             ``items`` blobs and bulky sync metadata, keeping id,
@@ -931,7 +1004,9 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
 
     try:
         client = TickTickClientSingleton.get_client()
+
         ensure_fresh(client)
+        project_id = _resolve_project_id(client, project_id)
         tasks = client.task.get_from_project(project_id)
         if tasks is None:
             tasks = []
@@ -1048,7 +1123,10 @@ async def ticktick_move_task(task_id: str, new_project_id: str) -> str:
 
     Args:
         task_id (str): The task's full ID.
-        new_project_id (str): Destination project's ID.
+        new_project_id (str): Destination project's ID or name.
+            Accepts the project's name as well as its ID
+            (case-insensitive, trimmed; "Inbox" resolves to the inbox).
+            Two projects sharing a name is an error, not a guess.
 
     Returns:
         JSON object containing the moved task. If the target project
@@ -1074,6 +1152,12 @@ async def ticktick_move_task(task_id: str, new_project_id: str) -> str:
         if relation_refusal is not None:
             return relation_refusal
 
+        new_project_id = _resolve_project_id(client, new_project_id)
+
+        # Serves this pre-read, not resolution. task.move() takes fromProjectId
+        # out of the fetched body, so a snapshot inside the throttle window
+        # moves the task from the wrong place.
+        ensure_fresh(client, force=True)
         task_obj = client.get_by_id(task_id)
         if isinstance(task_obj, dict) and task_obj and "projectId" not in task_obj:
             return format_response(
@@ -1160,6 +1244,10 @@ async def ticktick_make_subtask(parent_task_id: str, child_task_id: str) -> str:
         if relation_refusal is not None:
             return relation_refusal
 
+        # Both ends are read from local state and sent back, so this needs the
+        # same forced refresh as the other mutations. It had none of its own -
+        # it only ever got one when protection happened to be configured.
+        ensure_fresh(client, force=True)
         child = client.get_by_id(child_task_id)
         if not isinstance(child, dict) or not child:
             return format_response(
