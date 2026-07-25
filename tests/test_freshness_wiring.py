@@ -188,6 +188,33 @@ def test_delete_forces_its_pre_read_sync_rather_than_honouring_the_throttle():
     assert payload["projectId"] == "pREAL", "throttle served a stale snapshot to the pre-read"
 
 
+def test_make_subtask_forces_its_pre_read_sync_rather_than_honouring_the_throttle():
+    """Both ends are read from local state and posted back, so a snapshot
+    served by a warm throttle makes one or both ends look absent."""
+    from ticktick_mcp.freshness import ensure_fresh as real_ensure_fresh
+
+    client = MagicMock()
+    client.state = {"projects": [{"id": "p1", "name": "Project One"}], "tasks": []}
+    client.inbox_id = "inbox1"
+    client.sync.side_effect = lambda *a, **k: {}
+    real_ensure_fresh(client)  # opens the throttle window
+
+    seen = {"tasks": {}}
+
+    def _sync(*a, **k):
+        seen["tasks"] = {
+            "parent1": {"id": "parent1", "projectId": "p1", "title": "P"},
+            "child1": {"id": "child1", "projectId": "p1", "title": "C"},
+        }
+        return {}
+
+    client.sync.side_effect = _sync
+    client.get_by_id.side_effect = lambda i, *a, **k: seen["tasks"].get(i, {})
+    with patch(TASK_CLIENT, return_value=client):
+        run(ticktick_make_subtask("parent1", "child1"))
+    assert client.task.make_subtask.called, "throttle served a stale snapshot to the pre-read"
+
+
 def test_move_forces_its_pre_read_sync_rather_than_honouring_the_throttle():
     """task.move() takes fromProjectId from the fetched body, so a snapshot
     served by a warm throttle moves the task out of the wrong project."""

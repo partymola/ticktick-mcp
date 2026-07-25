@@ -218,7 +218,7 @@ def _protected_refusal(ids) -> Optional[str]:
     return _refusal_payload(hits, "named directly")
 
 
-def _protected_relation_refusal(client, ids) -> Optional[str]:
+def _protected_relation_refusal(client, ids, already_fresh: bool = False) -> Optional[str]:
     """Refuse when ``ids`` are unprotected but a protected task hangs off them.
 
     TickTick propagates delete/move through subtasks and lets a reparent
@@ -234,7 +234,9 @@ def _protected_relation_refusal(client, ids) -> Optional[str]:
     """
     if not PROTECTED_TASK_IDS or client is None:
         return None
-    if not ensure_fresh(client, force=True):
+    # A caller that has just forced its own refresh passes already_fresh, so
+    # protected mode does not cost two full-account syncs per call.
+    if not (already_fresh or ensure_fresh(client, force=True)):
         # ensure_fresh is fail-soft, so a failure leaves state at whatever it
         # was - arbitrarily old on a long-lived server. Refuse rather than
         # decide on it: a refusal is recoverable, the delete it would allow
@@ -870,21 +872,17 @@ async def ticktick_delete_tasks(
     try:
         client = TickTickClientSingleton.get_client()
 
-        relation_refusal = _protected_relation_refusal(client, ids)
+        # Forced first, so the guard, the resolver and the per-id pre-read all
+        # work off one refresh. A task missing from a stale snapshot falls to
+        # the project_id branch, which deletes using the caller's project
+        # rather than the task's own and still reports success.
+        fresh = ensure_fresh(client, force=True)
+
+        relation_refusal = _protected_relation_refusal(client, ids, already_fresh=fresh)
         if relation_refusal is not None:
             return relation_refusal
 
         project_id = _resolve_project_id(client, project_id)
-
-        # Serves the per-id pre-read below, not resolution. A task missing from
-        # a stale snapshot falls to the project_id branch, which deletes using
-        # the caller's project rather than the task's own and still reports
-        # success.
-        # Forced, like update_task and complete_task: the per-id pre-read below
-        # builds the delete payload, and a task missing from a snapshot inside
-        # the throttle window falls to the caller's projectId instead of its
-        # own - deleting from the wrong project and reporting success.
-        ensure_fresh(client, force=True)
 
         input_was_string = isinstance(task_ids, str)
 
@@ -1148,16 +1146,17 @@ async def ticktick_move_task(task_id: str, new_project_id: str) -> str:
     try:
         client = TickTickClientSingleton.get_client()
 
-        relation_refusal = _protected_relation_refusal(client, (task_id,))
+        # Forced first, so the guard, the resolver and the pre-read all work
+        # off one refresh. task.move() takes fromProjectId out of the body
+        # fetched here, so a snapshot inside the throttle window would move the
+        # task out of the wrong project.
+        fresh = ensure_fresh(client, force=True)
+
+        relation_refusal = _protected_relation_refusal(client, (task_id,), already_fresh=fresh)
         if relation_refusal is not None:
             return relation_refusal
 
         new_project_id = _resolve_project_id(client, new_project_id)
-
-        # Serves this pre-read, not resolution. task.move() takes fromProjectId
-        # out of the fetched body, so a snapshot inside the throttle window
-        # moves the task from the wrong place.
-        ensure_fresh(client, force=True)
         task_obj = client.get_by_id(task_id)
         if isinstance(task_obj, dict) and task_obj and "projectId" not in task_obj:
             return format_response(
@@ -1240,14 +1239,16 @@ async def ticktick_make_subtask(parent_task_id: str, child_task_id: str) -> str:
 
         client = TickTickClientSingleton.get_client()
 
-        relation_refusal = _protected_relation_refusal(client, (parent_task_id, child_task_id))
+        # Forced first, so the guard and both pre-reads work off one refresh.
+        # Both ends are read from local state and sent back.
+        fresh = ensure_fresh(client, force=True)
+
+        relation_refusal = _protected_relation_refusal(
+            client, (parent_task_id, child_task_id), already_fresh=fresh
+        )
         if relation_refusal is not None:
             return relation_refusal
 
-        # Both ends are read from local state and sent back, so this needs the
-        # same forced refresh as the other mutations. It had none of its own -
-        # it only ever got one when protection happened to be configured.
-        ensure_fresh(client, force=True)
         child = client.get_by_id(child_task_id)
         if not isinstance(child, dict) or not child:
             return format_response(
