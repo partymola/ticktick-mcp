@@ -45,7 +45,10 @@ ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 `ticktick_complete_task` tags its result with an additive `outcome`:
 
 - `completed_recurring` (with `next_occurrence_id`) when a recurring task rolls forward on completion — the same id reappears as the next occurrence (status 0, due date advanced). This replaces a misleading "status still indicates open" warning.
-- otherwise the existing behaviour stands; a non-recurring task that leaves the active list keeps the "task could not be re-fetched" success signal.
+- `completed` on every other success: a task refetched at status 2, and a task that left the active list and cannot be refetched (which keeps its existing note).
+- `uncertain` when a non-recurring task is still open after completing. Something did not take, and labelling it `completed` would assert a success the code cannot back.
+
+Every success path is tagged, so a caller branches on `outcome` alone and never has to read warning text. That matters most for `completed_recurring`, which comes back at status 0 and reads as a failure to anything checking status.
 
 `ticktick_update_task` tags its result with an additive `outcome` in two cases:
 

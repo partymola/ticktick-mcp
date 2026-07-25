@@ -1022,7 +1022,12 @@ async def ticktick_complete_task(task_id: str) -> str:
             )
 
         result = dict(refetched)
-        if refetched.get("status", 0) != 2:
+        if refetched.get("status", 0) == 2:
+            result["outcome"] = "completed"
+        else:
+            # Not recurring, yet still open. Something did not take, and
+            # calling it "completed" would assert a success we cannot back.
+            result["outcome"] = "uncertain"
             result["_verification_warnings"] = [
                 "post-complete verification failed: status still indicates open"
             ]
