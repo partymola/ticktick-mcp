@@ -118,10 +118,12 @@ def test_resolution_survives_a_project_entry_missing_a_name():
     assert _resolve_project_id(client, "Home Admin") == HOME
 
 
-def test_resolution_survives_a_project_entry_missing_an_id():
-    """An entry with a name but no id cannot be resolved TO, so it is not a
-    match - and reading its id to say so must not raise out of the tool."""
-    client = _client([{"name": "Home Admin"}, {"id": HOME, "name": "Home Admin"}])
+@pytest.mark.parametrize("unusable", [{"name": "Home Admin"}, {"id": 5, "name": "Home Admin"}])
+def test_resolution_survives_a_project_entry_with_no_usable_id(unusable):
+    """An entry whose id is missing or not a string cannot be resolved TO, so
+    it is not a match. Counting it raises KeyError on the missing case and
+    reports a spurious ambiguity on the non-string one."""
+    client = _client([unusable, {"id": HOME, "name": "Home Admin"}])
     assert _resolve_project_id(client, "Home Admin") == HOME
 
 
@@ -521,8 +523,18 @@ def test_completion_tools_say_unverifiable_not_missing_when_the_refresh_fails(ca
 def test_ambiguity_appearing_only_after_the_forced_refresh_is_still_an_error(call):
     """The re-resolve after the forced refresh can raise for the first time -
     the second project only shows up in that sync. Outside a handler it escapes
-    as an unhandled exception instead of a caller-visible error."""
-    client = _client(projects=[{"id": DUPE_A, "name": "Personal"}])
+    as an unhandled exception instead of a caller-visible error.
+
+    Pre-sync state must hold NO project of this name, and the throttle must be
+    warm. Otherwise the first resolve's own sync reveals the duplicate and it
+    is that resolve which raises - a call that was already inside the handler,
+    so the test would pass against the unfixed code and pin nothing."""
+    from ticktick_mcp.freshness import ensure_fresh as real_ensure_fresh
+
+    client = _client(projects=[{"id": WORK, "name": "Work"}])
+    client.sync.side_effect = lambda *a, **k: {}
+    real_ensure_fresh(client)
+    client.sync.reset_mock()
 
     def _sync(*a, **k):
         client.state["projects"] = [
@@ -544,6 +556,9 @@ def test_ambiguity_appearing_only_after_the_forced_refresh_is_still_an_error(cal
     assert result.get("status") == "error"
     assert "ambiguous" in json.dumps(result)
     marked.assert_not_called()
+    # Exactly one sync: the forced refresh. More would mean the first resolve
+    # also synced, and it - not the re-resolve - could be the raiser.
+    assert client.sync.call_count == 1
 
 
 def test_a_name_already_in_state_costs_no_forced_sync():

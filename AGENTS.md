@@ -79,7 +79,7 @@ Called by every surface that takes a project id: `create_task`, `get_tasks_from_
 
 The `ensure_fresh` calls that remain in the tools serve the tool's **own** reads, and must not be removed: the task fetch in `get_tasks_from_project`; the lookup in `get_by_id`; the uncompleted branch of `filter_tasks`; and the forced pre-read in `update_task`, `complete_task`, `delete_tasks`, `move_task` and `make_subtask`. The last three were each deleted once: `delete_tasks` falls back to the caller's `projectId` when a task is missing from the snapshot, so it deletes from the wrong project and reports success; `move_task` takes `fromProjectId` out of the fetched body; `make_subtask` reads both ends. All five force rather than throttle, because a mutation posts back what it read and a 15-second-old snapshot is enough to get it wrong.
 
-In the three structural tools that forced sync comes **first**, and the guard is then called with `already_fresh=True` so protected mode costs one full-account sync per call rather than two. If you add a tool that forces its own refresh before calling the guard, pass the flag; if you do not force one, do not pass it — the guard will refresh itself.
+In the three structural tools that forced sync comes **first**, and the guard is then handed *its result* as `already_fresh`, so protected mode costs one full-account sync per call rather than two. Pass the result, never a literal `True`: a forced sync that failed returns `False`, and the guard has to know that so it can retry and — if that also fails — refuse rather than decide on a snapshot it could not update. If you add a tool that forces its own refresh before calling the guard, pass the flag; if you do not force one, do not pass it.
 
 One consequence worth keeping in mind when editing the resolver: the id short-circuit runs on pre-sync state, so the sync can introduce the very project an id belongs to. There is a second id check after the sync for that reason — without it the id falls through to name matching and a project *named* with that id string wins it.
 
@@ -87,7 +87,7 @@ One consequence worth keeping in mind when editing the resolver: the id short-ci
 
 ## Protected tasks
 
-`TICKTICK_MCP_PROTECTED_TASK_IDS` (space- or comma-separated) names tasks no mutating tool may change. The guard is two stages, both in `task_tools.py`. Both return `outcome: "protected_task"` on a hit; the second can also return `outcome: "protection_unverifiable"` when it cannot refresh local state and therefore cannot rule a protected relation in or out:
+`TICKTICK_MCP_PROTECTED_TASK_IDS` (space- or comma-separated) names tasks no mutating tool may change. The guard is two stages, both in `task_tools.py`. Both return `outcome: "protected_task"` on a hit; the second can also return `outcome: "protection_unverifiable"` when it cannot read local state and therefore cannot rule a protected relation in or out - either because the refresh failed or because `client.state` is not a dict (the predicate is `isinstance`, so a `Mapping` that is not a dict is refused too - no ticktick-py client carries one):
 
 - **`_protected_refusal(ids)`** — a pure id comparison, the first statement of `update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask`.
 - **`_protected_relation_refusal(client, ids)`** — catches a protected task reached through a task nobody named. TickTick propagates delete and move through subtasks, and a reparent restructures a task that was not an argument. Runs in `delete`, `move` and `make_subtask`. Forces a refresh itself before deciding, so it adds one request per call while protection is configured and none when it is not; if that refresh fails it refuses rather than deciding on a snapshot it could not update, because a wrong answer here permits a delete that cannot be undone.
@@ -101,6 +101,8 @@ Invariants, each pinned by a test in `tests/test_protected_tasks.py` or `tests/t
 - `update_task` accepts a raw dict as well as a `TaskObject`, and the guard runs before that normalisation, so it reads the ID from either shape.
 - An unset variable means no protection and no behaviour change.
 - Reads are never blocked.
+
+- A failed refresh and a `client.state` that is not a dict are both refusals. Not "anything it cannot read" - a lookup that raises mid-walk still allows, which is the known limit below. The two that refuse are the ones where nothing could be read *at all*, and reading that as "no relations" is the fail-open answer: it looks identical to the fail-safe one in a test whose mock state iterates as empty.
 
 **Known limit, deliberate:** the relation stage can only see relations present in local state. If a lookup raises, that id contributes nothing and the rest of the batch is still checked — it never abandons the batch, but it also cannot refuse on a relation it could not resolve. Do not describe this stage as a guarantee against every indirect mutation; stage one is the hard guarantee, stage two is defence in depth.
 

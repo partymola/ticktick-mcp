@@ -17,9 +17,10 @@ from .helpers import ToolLogicError
 def _project_entries(client) -> list:
     """The project dicts in local state.
 
-    ``state`` is coalesced rather than defaulted: a client carrying it as None
-    satisfies ``getattr(client, "state", {})``, which then hands the None to
-    the lookup after it.
+    A falsy ``state`` is coalesced rather than defaulted: a client carrying it
+    as None satisfies ``getattr(client, "state", {})``, which then hands the
+    None to the lookup after it. Entries may still lack ``id`` or ``name``,
+    which is why both callers re-check.
     """
     state = getattr(client, "state", None) or {}
     return [p for p in (state.get("projects") or []) if isinstance(p, dict)]

@@ -242,22 +242,22 @@ def _protected_relation_refusal(client, ids, already_fresh: bool = False) -> Opt
         # was - arbitrarily old on a long-lived server. Refuse rather than
         # decide on it: a refusal is recoverable, the delete it would allow
         # is not.
-        return format_response(
-            {
-                "outcome": "protection_unverifiable",
-                "error": (
-                    "Refused: local state could not be refreshed, so a protected task "
-                    "hanging off this one could not be ruled out. Retry once the "
-                    "connection recovers."
-                ),
-            }
+        return _unverifiable_payload(
+            "could not be refreshed", "Retry once the connection recovers."
+        )
+    state = getattr(client, "state", None)
+    if not isinstance(state, dict):
+        # Same reasoning one step earlier: relations live in this mapping, so
+        # without it there is nothing to rule a protected subtask out with.
+        return _unverifiable_payload(
+            "is not readable",
+            "Retrying will not help: the client is not holding usable state.",
         )
     # TickTick propagates a delete through the whole subtree, so checking only
     # the named task's own childIds would miss a protected grandchild. Walk the
     # descendants, using a reverse index over local state as well as childIds:
     # a task can record its parentId without the parent listing it.
     children: dict = {}
-    state = getattr(client, "state", None) or {}
     for task in state.get("tasks") or []:
         if not isinstance(task, dict) or not isinstance(task.get("id"), str):
             continue
@@ -296,6 +296,20 @@ def _protected_relation_refusal(client, ids, already_fresh: bool = False) -> Opt
     if not hits:
         return None
     return _refusal_payload(sorted(hits), "a parent or descendant of the task you named")
+
+
+def _unverifiable_payload(cause: str, remedy: str) -> str:
+    """Both refusals share an outcome but not a remedy: a failed refresh clears
+    on its own, an unusable state does not."""
+    return format_response(
+        {
+            "outcome": "protection_unverifiable",
+            "error": (
+                f"Refused: local state {cause}, so a protected task hanging off "
+                f"this one could not be ruled out. {remedy}"
+            ),
+        }
+    )
 
 
 def _refusal_payload(hits: list, relation: str) -> str:

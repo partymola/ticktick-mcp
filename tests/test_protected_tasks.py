@@ -31,6 +31,10 @@ OTHER = "bbbbbbbbbbbbbbbbbbbbbbbb"
 def mock_client():
     """A client that records whether any network-facing call was made."""
     client = MagicMock()
+    # A real client's state is always a mapping. Left as a bare MagicMock it
+    # iterates as empty, so the relation walk reads nothing and the guard
+    # cannot tell that from a state it is unable to read.
+    client.state = {"tasks": [], "projects": []}
     client.get_by_id.return_value = {"id": PROTECTED, "title": "Protected", "projectId": "p1"}
     client.task.update.return_value = {"id": PROTECTED}
     client.task.complete.return_value = {"id": PROTECTED}

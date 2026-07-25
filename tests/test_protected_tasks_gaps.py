@@ -35,6 +35,10 @@ OTHER = "bbbbbbbbbbbbbbbbbbbbbbbb"
 @pytest.fixture
 def mock_client():
     client = MagicMock()
+    # A real client's state is always a mapping. Left as a bare MagicMock it
+    # iterates as empty, so the relation walk reads nothing and the guard
+    # cannot tell that from a state it is unable to read.
+    client.state = {"tasks": [], "projects": []}
     client.get_by_id.return_value = {}
     with patch(
         "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
@@ -324,12 +328,20 @@ def test_the_guard_refuses_when_it_cannot_refresh(protect, monkeypatch):
     undone; a refusal is recoverable."""
     monkeypatch.setattr(task_tools, "ensure_fresh", lambda *a, **k: False)
     client = MagicMock()
+    # A readable state, so the refusal can only come from the failed refresh.
+    # Without it the unreadable-state check answers first and this passes even
+    # with the refresh branch deleted.
+    client.state = {"tasks": [], "projects": []}
     client.get_by_id.return_value = {"id": "t1", "projectId": "p1", "title": "T"}
     with patch(
         "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
     ):
         result = json.loads(asyncio.run(ticktick_delete_tasks(["t1"])))
     assert result.get("outcome") == "protection_unverifiable"
+    # Both refusal paths share the outcome, so without this the readable-state
+    # line above is load-bearing setup that no assertion protects - delete it
+    # and the test still passes with the refresh branch gone.
+    assert "could not be refreshed" in result["error"]
     client.task.delete.assert_not_called()
 
 
@@ -409,27 +421,64 @@ def test_orphans_with_a_non_string_parent_id_are_not_pooled_into_one_bucket(prot
     client = MagicMock()
     client.state = {
         "tasks": [
-            {"id": PROTECTED, "projectId": "p1", "title": "Orphan", "parentId": 0.0},
+            # Truthy, so the entry is not skipped before normalisation - a
+            # falsy parentId would be dropped either way and pin nothing.
+            {"id": PROTECTED, "projectId": "p1", "title": "Orphan", "parentId": 7},
         ]
     }
     client.get_by_id.side_effect = lambda i, *a, **k: {}
     with patch(
         "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
     ):
-        result = json.loads(asyncio.run(ticktick_delete_tasks(["   "])))
+        result = json.loads(asyncio.run(ticktick_delete_tasks(["   "], project_id="p1")))
+    # Positively, not just "not refused": any error payload carries no outcome
+    # at all, so the negative alone would also pass on a crash.
     assert result.get("outcome") != "protected_task"
+    assert client.task.delete.called
 
 
-def test_a_client_whose_state_is_none_still_reaches_a_decision(protect):
-    """The guard has to decide on a client carrying ``state = None``, not raise
-    on it. Asserting merely that an error came back would pass on the crash too
-    - the tool catches it and returns an error payload - so this pins the
-    decision itself: nothing here is protected, so the delete runs."""
+@pytest.mark.parametrize("state", [None, [], "tasks", 0], ids=["none", "list", "str", "int"])
+def test_state_that_is_not_a_mapping_refuses_rather_than_allowing(protect, state):
+    """Relations live in ``state``, so without a readable one the guard cannot
+    rule a protected subtask in or out. It must answer the way it answers a
+    failed refresh - refuse - and not fall through to an empty index, which
+    would let an unnamed protected task be deleted with no way back.
+
+    Asserting merely that an error came back would also pass on a crash: the
+    tool catches the AttributeError and returns an error payload too. So this
+    pins the outcome, and that the delete never went out."""
     client = MagicMock()
-    client.state = None
+    client.state = state
     client.get_by_id.side_effect = lambda i, *a, **k: {}
     with patch(
         "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
     ):
-        asyncio.run(ticktick_delete_tasks(["ffff1111ffff1111ffff1111"], project_id="p1"))
-    assert client.task.delete.called
+        result = json.loads(
+            asyncio.run(ticktick_delete_tasks(["ffff1111ffff1111ffff1111"], project_id="p1"))
+        )
+    assert result.get("outcome") == "protection_unverifiable"
+    assert "is not readable" in result["error"]
+    # Retrying a state the client cannot hold does not fix it, so this path
+    # must not hand back the failed-refresh advice.
+    assert "Retry once" not in result["error"]
+    client.task.delete.assert_not_called()
+
+
+def test_protected_mode_costs_one_sync_per_structural_call(protect):
+    """The guard and the tool each force a refresh, and nothing between them
+    touches the server. Dropping the handoff is invisible to every other test -
+    behaviour is unchanged, only the cost - so it needs its own assertion."""
+    for call, sent in (
+        (lambda: ticktick_delete_tasks(["ffff1111ffff1111ffff1111"], project_id="p1"), "delete"),
+        (lambda: ticktick_move_task("ffff1111ffff1111ffff1111", "p1"), "move"),
+        (lambda: ticktick_make_subtask(OTHER, "ffff1111ffff1111ffff1111"), "make_subtask"),
+    ):
+        client = MagicMock()
+        client.state = {"tasks": [], "projects": [{"id": "p1", "name": "P"}]}
+        client.inbox_id = "inbox1"
+        client.get_by_id.side_effect = lambda i, *a, **k: {"id": i, "projectId": "p1", "title": "T"}
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client
+        ):
+            asyncio.run(call())
+        assert client.sync.call_count == 1, f"{sent} synced {client.sync.call_count}x"
