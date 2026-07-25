@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Tasks can be marked off-limits to modification via `TICKTICK_MCP_PROTECTED_TASK_IDS`, a space- or comma-separated list of task IDs. `ticktick_update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask` refuse any call naming one, returning `outcome: "protected_task"` without sending a request that reads or writes the task; reads are unaffected and an unset variable leaves behaviour unchanged. A batch delete containing a protected ID is refused in full rather than partially applied, because a partial delete cannot be undone. Since TickTick propagates delete and move through subtasks, the three structural tools also refuse when a protected task is the parent or subtask of a task the caller named, resolved from already-synced local state at no extra request. IDs are compared ignoring surrounding whitespace, quotes and case, so a padded or recased ID cannot slip past a check the API itself would resolve.
+
 ## [0.1.3] - 2026-07-22
 
 ### Added

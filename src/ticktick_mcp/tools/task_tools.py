@@ -20,6 +20,7 @@ raises before any API call.
 
 import datetime
 import logging
+import os
 from typing import Any, List, Optional, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -150,6 +151,93 @@ class TaskObject(BaseModel):
                 continue
             if key in self.model_fields:
                 object.__setattr__(self, key, value)
+
+
+PROTECTED_TASK_IDS_ENV = "TICKTICK_MCP_PROTECTED_TASK_IDS"
+
+
+def _norm_task_id(value: Any) -> str:
+    """Normalise an id for comparison.
+
+    Config and caller ids must go through the same funnel: normalising only the
+    configured side lets a padded or recased id slip past the check and reach
+    the API, which resolves it anyway.
+    """
+    if not isinstance(value, str):
+        return ""
+    return value.strip().strip("\"'").casefold()
+
+
+def _load_protected_task_ids() -> frozenset:
+    raw = os.environ.get(PROTECTED_TASK_IDS_ENV, "")
+    ids = frozenset(_norm_task_id(part) for part in raw.replace(",", " ").split())
+    return ids - {""}
+
+
+PROTECTED_TASK_IDS: frozenset = _load_protected_task_ids()
+
+if PROTECTED_TASK_IDS:
+    # Count only - the ids themselves are account data.
+    logger.info("Protected task ids loaded: %d", len(PROTECTED_TASK_IDS))
+
+
+def _protected_refusal(ids) -> Optional[str]:
+    """Return a refusal payload if any of ``ids`` names a protected task.
+
+    Runs before anything that reads or writes the task. A batch containing one
+    protected id is refused whole, because a partial delete cannot be undone.
+    """
+    if not PROTECTED_TASK_IDS:
+        return None
+    hits = sorted({_norm_task_id(i) for i in ids} & PROTECTED_TASK_IDS)
+    if not hits:
+        return None
+    return _refusal_payload(hits, "named directly")
+
+
+def _protected_relation_refusal(client, ids) -> Optional[str]:
+    """Refuse when ``ids`` are unprotected but a protected task hangs off them.
+
+    TickTick propagates delete/move through subtasks and lets a reparent
+    restructure a task nobody named, so an id check alone leaves a protected
+    task reachable via its parent. Resolution uses the already-synced local
+    state, so this costs no additional request.
+    """
+    if not PROTECTED_TASK_IDS or client is None:
+        return None
+    hits = set()
+    for task_id in ids:
+        if not isinstance(task_id, str):
+            continue
+        try:
+            task = client.get_by_id(task_id)
+        except Exception:  # a lookup failure must not open the guard
+            continue
+        if not isinstance(task, dict):
+            continue
+        related = list(task.get("childIds") or [])
+        parent = task.get("parentId")
+        if parent:
+            related.append(parent)
+        hits |= {_norm_task_id(r) for r in related} & PROTECTED_TASK_IDS
+    if not hits:
+        return None
+    return _refusal_payload(sorted(hits), "a parent or subtask of the task you named")
+
+
+def _refusal_payload(hits: list, relation: str) -> str:
+    return format_response(
+        {
+            "outcome": "protected_task",
+            "protected_task_ids": hits,
+            "error": (
+                f"Refused: {', '.join(hits)} is {relation} and is listed in "
+                f"{PROTECTED_TASK_IDS_ENV}, which marks tasks that must never be "
+                "modified. Nothing was changed. Remove the id from "
+                f"{PROTECTED_TASK_IDS_ENV} if this was intended."
+            ),
+        }
+    )
 
 
 def _serialize_date_field(value: Any, tz: Optional[str]) -> Any:
@@ -471,6 +559,14 @@ async def update_task(task_object: TaskObject) -> str:
             "timeZone": "Europe/London",
         })
     """
+    # Callers may pass a raw dict; the guard runs before that is normalised
+    # below, so read the id from either shape rather than bypassing on dicts.
+    refusal = _protected_refusal(
+        (task_object.get("id") if isinstance(task_object, dict) else task_object.id,)
+    )
+    if refusal is not None:
+        return refusal
+
     try:
         if isinstance(task_object, dict):
             task_object = TaskObject(**task_object)
@@ -667,14 +763,19 @@ async def ticktick_delete_tasks(
             project_id="<your-project-id>",
         )
     """
+    ids = [task_ids] if isinstance(task_ids, str) else list(task_ids or [])
+    refusal = _protected_refusal(ids)
+    if refusal is not None:
+        return refusal
+
     try:
         client = TickTickClientSingleton.get_client()
 
+        relation_refusal = _protected_relation_refusal(client, ids)
+        if relation_refusal is not None:
+            return relation_refusal
+
         input_was_string = isinstance(task_ids, str)
-        if input_was_string:
-            ids: list = [task_ids]
-        else:
-            ids = list(task_ids or [])
 
         if not ids:
             return format_response({"status": "error", "message": "No task IDs provided."})
@@ -828,6 +929,10 @@ async def ticktick_complete_task(task_id: str) -> str:
     Example:
         ticktick_complete_task(task_id="60ca9dbc8f08516d9dd56324")
     """
+    refusal = _protected_refusal((task_id,))
+    if refusal is not None:
+        return refusal
+
     try:
         client = TickTickClientSingleton.get_client()
 
@@ -914,8 +1019,16 @@ async def ticktick_move_task(task_id: str, new_project_id: str) -> str:
             new_project_id="<your-project-id>",
         )
     """
+    refusal = _protected_refusal((task_id,))
+    if refusal is not None:
+        return refusal
+
     try:
         client = TickTickClientSingleton.get_client()
+
+        relation_refusal = _protected_relation_refusal(client, (task_id,))
+        if relation_refusal is not None:
+            return relation_refusal
 
         task_obj = client.get_by_id(task_id)
         if isinstance(task_obj, dict) and task_obj and "projectId" not in task_obj:
@@ -976,6 +1089,10 @@ async def ticktick_make_subtask(parent_task_id: str, child_task_id: str) -> str:
             child_task_id="60ca9dbc8f08516d9dd56325",
         )
     """
+    refusal = _protected_refusal((parent_task_id, child_task_id))
+    if refusal is not None:
+        return refusal
+
     try:
         if not isinstance(parent_task_id, str) or not parent_task_id:
             return format_response(
@@ -994,6 +1111,10 @@ async def ticktick_make_subtask(parent_task_id: str, child_task_id: str) -> str:
             )
 
         client = TickTickClientSingleton.get_client()
+
+        relation_refusal = _protected_relation_refusal(client, (parent_task_id, child_task_id))
+        if relation_refusal is not None:
+            return relation_refusal
 
         child = client.get_by_id(child_task_id)
         if not isinstance(child, dict) or not child:

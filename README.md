@@ -134,6 +134,19 @@ The TickTick account can be edited from the app on other devices while the serve
 | `TICKTICK_MCP_SYNC_TTL_SECONDS` | `15` | Minimum seconds between on-demand read re-syncs |
 | `TICKTICK_MCP_INIT_RETRY_SECONDS` | `60` | Cooldown before retrying client login after a failed first connection |
 | `TICKTICK_MCP_RATELIMIT_RETRY_SECONDS` | `300` | Cooldown before retrying login after a rate-limit (HTTP 429); longer than the init cooldown because a 429 clears slowly and each retry prolongs it |
+| `TICKTICK_MCP_PROTECTED_TASK_IDS` | unset | Task IDs an agent must never modify, separated by spaces or commas. Every mutating tool refuses before sending anything; reads are unaffected. Unset means no protection. |
+
+### Protecting tasks from modification
+
+Some tasks should never be changed by an agent, whatever it is asked to do. List their IDs in `TICKTICK_MCP_PROTECTED_TASK_IDS`:
+
+```bash
+TICKTICK_MCP_PROTECTED_TASK_IDS="60ca9dbc8f08516d9dd56324,60ca9dbc8f08516d9dd56325"
+```
+
+`ticktick_update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask` then refuse any call naming a protected task, returning `outcome: "protected_task"`. No request that reads or writes the task is sent. A batch delete containing a protected ID is refused in full rather than partially applied, since a partial delete cannot be undone.
+
+Because TickTick propagates delete and move through subtasks, `delete`, `move` and `make_subtask` also refuse when a protected task is the parent or the subtask of a task you named. That check reads already-synced local state, so it costs no extra request; it cannot see relations that state does not hold. IDs are matched ignoring surrounding whitespace, quotes and case. Reading protected tasks always works.
 
 Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_URI`, `TICKTICK_USERNAME`, `TICKTICK_PASSWORD`) are read from the `.env` file or, if absent, directly from the environment.
 

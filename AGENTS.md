@@ -53,6 +53,27 @@ ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 - `no_op` when the API echoes an empty response and a re-read confirms the change did not apply. Re-read with `ticktick_get_by_id` to confirm the current state before retrying.
 - `reopen_no_effect` (an error) when the caller's only substantive change is `status:0` on a recurring task that has already rolled forward (it is back at status 0). Completing a recurring task advances the same id and files the completed instance as a separate history record, so a `status:0` "reopen" of the series id changes nothing and does **not** undo the completion — rather than let that read as success, the tool refuses and explains. Any update that also changes another field proceeds normally, so reschedules are unaffected.
 
+## Protected tasks
+
+`TICKTICK_MCP_PROTECTED_TASK_IDS` (space- or comma-separated) names tasks no mutating tool may change. The guard is two stages, both in `task_tools.py`, and both return `outcome: "protected_task"`:
+
+- **`_protected_refusal(ids)`** — a pure id comparison, the first statement of `update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask`.
+- **`_protected_relation_refusal(client, ids)`** — catches a protected task reached through a task nobody named. TickTick propagates delete and move through subtasks, and a reparent restructures a task that was not an argument. Runs in `delete`, `move` and `make_subtask` off already-synced local state, so it costs no extra request.
+
+Invariants, each pinned by a test in `tests/test_protected_tasks.py` or `tests/test_protected_tasks_gaps.py`, and each verified to fail against a deliberately broken build:
+
+- **No request that reads or writes the task is ever sent.** Stage one runs before the tool touches the client at all. Note the narrower wording: `@require_ticktick_client` wraps every one of these tools and may establish a session first, so "before any network call" would be false on a cold server.
+- A batch delete containing one protected ID is refused **whole**. Partial deletion cannot be undone.
+- `make_subtask` guards **both** ends; so does the relation stage.
+- Caller ids and configured ids go through the same `_norm_task_id` funnel (strip, unquote, casefold). Normalising only the configured side let a padded or recased id through to the API, which resolves it anyway.
+- `update_task` accepts a raw dict as well as a `TaskObject`, and the guard runs before that normalisation, so it reads the ID from either shape.
+- An unset variable means no protection and no behaviour change.
+- Reads are never blocked.
+
+**Known limit, deliberate:** the relation stage can only see relations present in local state. If a lookup raises, that id contributes nothing and the rest of the batch is still checked — it never abandons the batch, but it also cannot refuse on a relation it could not resolve. Do not describe this stage as a guarantee against every indirect mutation; stage one is the hard guarantee, stage two is defence in depth.
+
+When adding a mutating tool, add both guards and a refusal test with it.
+
 ## Test conventions
 
 - Async tools are tested via `asyncio.run()` wrapper.
