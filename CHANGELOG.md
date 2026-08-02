@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A fresh install no longer breaks on import. The `mcp` spec was `>=1.6.0` with no upper bound, so once 2.0.0 was published the resolver picked it and the server failed to start.
 - Strict tool-argument validation is now pinned by a test that invokes a registered tool with an unknown kwarg, rather than only asserting the setting the patch writes. The strictness comes from patching a private `mcp` internal; if that internal stops being what argument models are built on, the patch still applies cleanly to an object nothing reads and typo'd kwargs silently fall through to their defaults again - which the previous checks could not distinguish from working.
 
+### Packaging
+
+- The build toolchain is pinned alongside the dependencies: `setuptools` to an exact version, the `python:3.13-slim` base image by digest, and every GitHub Action to a full commit SHA rather than a moving major tag. The `uv` binary image, previously referenced as `:latest`, is pinned to 0.12.1 by digest. A floating tag can change what a build produces with nobody deciding, which is the same failure the dependency pins address.
+
 ## [0.2.0] - 2026-07-25
 
 ### Fixed
@@ -77,7 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied — the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward — such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.2.0...HEAD
 [Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/partymola/ticktick-mcp/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/partymola/ticktick-mcp/compare/v0.1.2...v0.1.3
