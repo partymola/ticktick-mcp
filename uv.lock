@@ -696,7 +696,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = "==1.4.0" },
     { name = "python-dotenv", specifier = "==1.2.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.1" },
-    { name = "ticktick-py", git = "https://github.com/partymola/ticktick-py.git?rev=main" },
+    { name = "ticktick-py", git = "https://github.com/partymola/ticktick-py.git?rev=95bac06da06cd88be885078bfb8ab5d3f0610374" },
     { name = "tzlocal", specifier = "==5.4.4" },
 ]
 provides-extras = ["dev"]
@@ -704,7 +704,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "ticktick-py"
 version = "2.0.4"
-source = { git = "https://github.com/partymola/ticktick-py.git?rev=main#95bac06da06cd88be885078bfb8ab5d3f0610374" }
+source = { git = "https://github.com/partymola/ticktick-py.git?rev=95bac06da06cd88be885078bfb8ab5d3f0610374#95bac06da06cd88be885078bfb8ab5d3f0610374" }
 dependencies = [
     { name = "pytz" },
     { name = "requests" },

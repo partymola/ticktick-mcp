@@ -30,7 +30,12 @@ dependencies = [
     "anyio==4.14.2",
     "python-dotenv==1.2.2",
     "pydantic==2.13.4",
-    "ticktick-py",
+    # A PEP 508 direct reference, not a bare name: `[tool.uv.sources]` is a uv
+    # extension that pip ignores, so a bare name resolved to the unrelated
+    # `ticktick-py` on PyPI for anyone installing with pip - silently, and
+    # without the fixes this server depends on. Pinned to a commit for the same
+    # reason every other dependency is pinned to a version.
+    "ticktick-py @ git+https://github.com/partymola/ticktick-py.git@95bac06da06cd88be885078bfb8ab5d3f0610374",
     "tzlocal==5.4.4",
 ]
 
@@ -44,9 +49,6 @@ Repository = "https://github.com/partymola/ticktick-mcp"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.uv.sources]
-ticktick-py = { git = "https://github.com/partymola/ticktick-py.git", rev = "main" }
 
 [project.optional-dependencies]
 dev = [
