@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Ported to the `mcp` 2.x server API. 2.0.0 renamed `mcp.server.fastmcp` to `mcp.server.mcpserver` and the `FastMCP` class to `MCPServer`, with no compatibility alias. The tool contract is unchanged: every tool keeps its name, description, and input and output schemas.
+- Every dependency is pinned to an exact version instead of a lower bound: `mcp` 2.0.0, `anyio` 4.14.2, `python-dotenv` 1.2.2, `pydantic` 2.13.4 and `tzlocal` 5.4.4, and for development `pytest` 9.1.1, `pytest-asyncio` 1.4.0 and `ruff` 0.16.1.
+
+### Fixed
+
+- A fresh install no longer breaks on import. The `mcp` spec was `>=1.6.0` with no upper bound, so once 2.0.0 was published the resolver picked it and the server failed to start.
+- Strict tool-argument validation is now pinned by a test that invokes a registered tool with an unknown kwarg, rather than only asserting the setting the patch writes. The strictness comes from patching a private `mcp` internal; if that internal stops being what argument models are built on, the patch still applies cleanly to an object nothing reads and typo'd kwargs silently fall through to their defaults again - which the previous checks could not distinguish from working.
+
 ## [0.2.0] - 2026-07-25
 
 ### Fixed
@@ -65,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied — the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward — such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.2.0...HEAD
 [Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/partymola/ticktick-mcp/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/partymola/ticktick-mcp/compare/v0.1.2...v0.1.3

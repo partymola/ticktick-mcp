@@ -21,13 +21,17 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Scheduling",
 ]
+# Every dependency is pinned to an exact version that the suite has been run
+# against. A range leaves the choice to the resolver, which is how `mcp` 2.0.0
+# reached installs unannounced and broke them. Bump deliberately, never by
+# widening a spec.
 dependencies = [
-    "mcp>=1.6.0",
-    "anyio>=4.9.0",
-    "python-dotenv>=1.1.0",
-    "pydantic>=2.0",
+    "mcp==2.0.0",
+    "anyio==4.14.2",
+    "python-dotenv==1.2.2",
+    "pydantic==2.13.4",
     "ticktick-py",
-    "tzlocal>=5.3.1",
+    "tzlocal==5.4.4",
 ]
 
 [project.scripts]
@@ -46,12 +50,9 @@ ticktick-py = { git = "https://github.com/partymola/ticktick-py.git", rev = "mai
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.5",
-    "pytest-asyncio>=0.25.0",
-    # Pinned exactly so local and CI lint are deterministic: ruff's formatter
-    # changes between releases, and an unpinned spec lets CI pull a newer ruff
-    # that reformats code an older local ruff had passed. Bump deliberately.
-    "ruff==0.15.20",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "ruff==0.16.1",
 ]
 
 [tool.pytest.ini_options]
