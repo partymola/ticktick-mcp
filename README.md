@@ -38,7 +38,7 @@ uv sync
 
 This creates a `.venv` and installs from `uv.lock`, giving you the console script at `.venv/bin/ticktick-mcp`.
 
-> **Use uv, not plain `pip`.** This server depends on a fork of `ticktick-py` pinned via `[tool.uv.sources]` / `uv.lock`. `uv` honours that pin; a plain `pip install .` silently resolves the bare `ticktick-py` name from PyPI instead, giving you the upstream package without this project's fixes.
+`pip install .` works too. The fork of `ticktick-py` this server needs is pinned as a direct git reference inside `dependencies`, which pip and uv both honour; `uv sync` is recommended because it installs the exact versions in `uv.lock` rather than re-resolving them.
 
 ## Credentials
 
@@ -59,7 +59,17 @@ TickTick sign-in needs two things: an OAuth app (client ID + secret) and your ow
    TICKTICK_PASSWORD=your_ticktick_password
    ```
 
-There is no separate `auth` step. The server logs in lazily on the first tool call (username/password via `ticktick-py`, plus the OAuth token), then caches the OAuth token next to your `.env` as `.token-oauth` and refreshes it automatically.
+**Authorise once, at a terminal, before registering the server.** The OAuth step opens a browser and asks you to paste the URL you land on. TickTick issues no refresh token, so this recurs when the token expires (roughly every six months). Run it yourself first:
+
+```bash
+.venv/bin/ticktick-mcp --dotenv-dir ~/.config/ticktick-mcp
+```
+
+Let it complete the browser step, then stop it. The token is cached next to your `.env` as `.token-oauth`, and every later start reuses it.
+
+Do not let that step happen inside the MCP server. Its prompt reads from standard input, which is the JSON-RPC channel, so an unauthorised first tool call opens a browser on the host and blocks. In a container it cannot be completed at all - authorise on the host and mount the config directory in.
+
+The username/password half needs no separate step: the server logs in lazily on the first tool call and caches that session token as `.token-v2`, so it does not re-submit your credentials on every start.
 
 The server looks for `.env` in this order: the `--dotenv-dir <path>` argument, then the `TICKTICK_MCP_DOTENV_DIR` environment variable, then `~/.config/ticktick-mcp/`. If no `.env` is found it falls back to the `TICKTICK_*` environment variables directly, which is convenient for container/CI use.
 
@@ -160,7 +170,7 @@ TICKTICK_MCP_PROTECTED_TASK_IDS="60ca9dbc8f08516d9dd56324,60ca9dbc8f08516d9dd563
 
 `ticktick_update_task`, `ticktick_complete_task`, `ticktick_delete_tasks`, `ticktick_move_task` and `ticktick_make_subtask` then refuse any call naming a protected task, returning `outcome: "protected_task"`. No request that reads or writes the task is sent. A batch delete containing a protected ID is refused in full rather than partially applied, since a partial delete cannot be undone.
 
-Because TickTick propagates delete and move through subtasks, `delete`, `move` and `make_subtask` also refuse when a protected task is the parent or the subtask of a task you named. That check refreshes local state first, so it adds one request per delete, move or reparent while protection is configured — and returns `outcome: "protection_unverifiable"` if that refresh fails, since it cannot rule out a protected subtask on a snapshot it could not update. With the variable unset it does no extra work at all. IDs are matched ignoring surrounding whitespace, quotes and case. Reading protected tasks always works.
+Because TickTick propagates delete and move through subtasks, `delete`, `move` and `make_subtask` also refuse when a protected task is the parent or the subtask of a task you named. That check refreshes local state first, so it adds one request per delete, move or reparent while protection is configured - and returns `outcome: "protection_unverifiable"` if that refresh fails, since it cannot rule out a protected subtask on a snapshot it could not update. With the variable unset it does no extra work at all. IDs are matched ignoring surrounding whitespace, quotes and case. Reading protected tasks always works.
 
 Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_URI`, `TICKTICK_USERNAME`, `TICKTICK_PASSWORD`) are read from the `.env` file or, if absent, directly from the environment.
 

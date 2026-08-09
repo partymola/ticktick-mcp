@@ -35,7 +35,7 @@ Please install it before your first commit.
 .venv/bin/python -m pytest tests/ -v
 ```
 
-Tests are fully offline — no real API calls, no real tokens. Fixtures use mocked clients.
+Tests are fully offline - no real API calls, no real tokens. Fixtures use mocked clients.
 
 ### Run lint and formatting checks
 
@@ -71,4 +71,4 @@ curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.pa
 ## Data safety
 
 - Never commit `.env`, `config/*.env`, OAuth tokens, completion-tracking databases, or anything matching the patterns in `scripts/check-no-data.sh`.
-- Test fixtures must use mocked clients with synthetic data — no real task content, project IDs, or account identifiers from a live TickTick account.
+- Test fixtures must use mocked clients with synthetic data - no real task content, project IDs, or account identifiers from a live TickTick account.

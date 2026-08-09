@@ -8,6 +8,8 @@ doomed login.
 """
 
 import os
+import pathlib
+import sys
 import time
 from unittest.mock import MagicMock, patch
 
@@ -404,3 +406,143 @@ class TestInitRetrySecondsEnv:
     def test_negative_falls_back_to_default(self):
         with patch.dict(os.environ, {"TICKTICK_MCP_INIT_RETRY_SECONDS": "-1"}):
             assert client_module._init_retry_seconds() == 60.0
+
+
+class TestTheAugmentationActuallyInstalls:
+    """conftest replaces ticktick.api.TickTickClient with a MagicMock.
+
+    Every other test therefore patches a mock: deleting either wiring call
+    leaves the suite green while the session-token cache - the reason this
+    module exists - silently stops working. These drive the real functions
+    against a stand-in class instead.
+    """
+
+    def _fresh_class(self):
+        class FakeTickTickClient:
+            _login_calls = []
+
+            def __init__(self):
+                self.access_token = None
+                self.cookies = {}
+
+            def _login(self, username, password):
+                type(self)._login_calls.append((username, password))
+                self.access_token = "from-signon"
+
+        return FakeTickTickClient
+
+    def test_the_login_wrapper_uses_an_injected_token_without_a_request(self, monkeypatch):
+        cls = self._fresh_class()
+        monkeypatch.setattr(client_module, "TickTickClient", cls)
+        monkeypatch.setattr(client_module, "_INJECTED_V2_TOKEN", "injected-tok")
+
+        original = cls._login
+        cls._login_augmented = False
+        client_module._augment_login()
+        assert cls._login is not original, "the wrapper was not installed"
+
+        instance = cls()
+        instance._login("user", "pass")
+        assert instance.access_token == "injected-tok"
+        assert instance.cookies["t"] == "injected-tok"
+        assert cls._login_calls == [], "signon was called despite an injected token"
+
+    def test_the_login_wrapper_falls_through_with_no_injected_token(self, monkeypatch):
+        cls = self._fresh_class()
+        monkeypatch.setattr(client_module, "TickTickClient", cls)
+        monkeypatch.setattr(client_module, "_INJECTED_V2_TOKEN", None)
+        cls._login_augmented = False
+        client_module._augment_login()
+
+        instance = cls()
+        instance._login("user", "pass")
+        assert instance.access_token == "from-signon"
+        assert cls._login_calls == [("user", "pass")]
+
+    def test_both_wrappers_are_installed_at_import(self):
+        """The wrappers being correct is no use if nothing calls them.
+
+        Read from the source: conftest replaces TickTickClient with a
+        MagicMock, on which every attribute is truthy, so asking the class
+        whether it was augmented answers yes either way.
+        """
+        import ast
+
+        tree = ast.parse(pathlib.Path(client_module.__file__).read_text())
+        module_level_calls = {
+            node.value.func.id
+            for node in tree.body
+            if isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+        }
+        assert "_augment_login" in module_level_calls
+        assert "_augment_check_status_code" in module_level_calls
+
+    def test_the_status_wrapper_installs_and_carries_the_code(self, monkeypatch):
+        class Bare:
+            pass
+
+        monkeypatch.setattr(client_module, "TickTickClient", Bare)
+        client_module._augment_check_status_code()
+        assert Bare._status_code_augmented is True
+
+        response = MagicMock()
+        response.status_code = 429
+        with pytest.raises(client_module.TickTickHTTPError) as exc_info:
+            Bare.check_status_code(response, "Could Not Complete Request")
+        assert exc_info.value.status == 429
+
+
+class TestTheCredentialFilesAreOwnerOnly:
+    """Three claims that survived mutation until these existed."""
+
+    def test_an_existing_loose_token_is_tightened_on_rewrite(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            path = tmp_path / client_module._V2_TOKEN_FILENAME
+            path.write_text("{}")
+            os.chmod(path, 0o644)
+            client_module._write_v2_token("tok")
+            assert oct(path.stat().st_mode & 0o777) == "0o600"
+
+    def test_the_oauth_cache_is_narrowed_after_construction(self, tmp_path):
+        cache = tmp_path / ".token-oauth"
+
+        def fake_oauth2(**kwargs):
+            # ticktick-py writes the cache with no mode of its own.
+            pathlib.Path(kwargs["cache_path"]).write_text("{}")
+            os.chmod(kwargs["cache_path"], 0o644)
+            return MagicMock()
+
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                self.access_token = "tok"
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "OAuth2", fake_oauth2),
+            patch.object(client_module, "TickTickClient", FakeClient),
+        ):
+            TickTickClientSingleton._construct_client()
+
+        assert oct(cache.stat().st_mode & 0o777) == "0o600"
+
+    def test_the_config_directory_is_created_owner_only(self, tmp_path, monkeypatch):
+        """conftest replaces ticktick_mcp.config with a stub before any import.
+
+        The real module is loaded from source here, so this exercises the
+        mkdir that actually runs rather than the stub's absence of one.
+        """
+        import importlib.util
+
+        target = tmp_path / "nested" / "ticktick-mcp"
+        monkeypatch.setenv("TICKTICK_MCP_DOTENV_DIR", str(target))
+        monkeypatch.setattr(sys, "argv", ["ticktick-mcp"])
+
+        source = pathlib.Path(client_module.__file__).parent / "config.py"
+        spec = importlib.util.spec_from_file_location("_real_ticktick_config", source)
+        real_config = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(real_config)
+
+        assert real_config.dotenv_dir_path == target
+        assert oct(target.stat().st_mode & 0o777) == "0o700"
