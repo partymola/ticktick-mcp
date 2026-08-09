@@ -45,10 +45,10 @@ This creates a `.venv` and installs from `uv.lock`, giving you the console scrip
 TickTick sign-in needs two things: an OAuth app (client ID + secret) and your own account login.
 
 1. Register an app at [developer.ticktick.com](https://developer.ticktick.com/manage). Set the **Redirect URI** to `http://localhost:8080/redirect`. Note the **Client ID** and **Client Secret**.
-2. Copy the template and fill it in:
+2. Copy the template into the directory the server reads, and fill it in:
 
    ```bash
-   cp .env.example .env
+   mkdir -p ~/.config/ticktick-mcp && cp .env.example ~/.config/ticktick-mcp/.env
    ```
 
    ```

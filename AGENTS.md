@@ -42,6 +42,16 @@ That makes deleting the cache a destructive act, so it is gated on classificatio
 - **An unreadable cache is deleted, not merely skipped.** `read_text` raises `UnicodeDecodeError`, a `ValueError` and not an `OSError`, so a non-UTF-8 file escaped before anything could clear it and every retry failed identically. Pinned by `test_an_undecodable_cache_is_deleted_rather_than_bricking_the_server`.
 - **Both credential files are owner-only.** `.token-v2` is created 0600 rather than written and chmodded after, and the tightening is best-effort so it cannot cost the token. `.token-oauth` is written by `ticktick-py` with no mode of its own, so it is narrowed after construction. The config directory is created 0700.
 
+### Seams the test suite does not cross
+
+Three findings in this area came from the same place: a claim that is true of the code but lives where no test can reach it. Check these by execution, not by reading, whenever they change.
+
+- **The `ticktick-py` monkeypatch layer.** `tests/conftest.py` replaces `ticktick.api.TickTickClient` with a `MagicMock` before any import, so `_augment_login` and `_augment_check_status_code` install onto a mock and every attribute of a mock answers yes. Drive them against a stand-in class, and pin the module-level wiring by reading the source.
+- **The CLI process boundary.** A command in the README is not exercised by anything that imports the package. `test_the_readme_command_is_the_one_the_cli_implements` pins the one that drifted; run any new one before documenting it.
+- **Exception-classification scope.** A `try` whose `except` decides *what failed* is an interface, and everything inside it is claiming to be that thing. `_is_rejection` answers "is the cached v2 token stale?", so only the expression that exercises that token belongs in the try - which is why `_new_oauth()` is built above it. Putting a third call back inside would make an OAuth failure read as a stale session token and cost it.
+
+**When a change adds an entry point** - a subcommand, a flag, a tool, or a documented user action - the unit to review is not the diff. It is the set of existing paths whose reachability or frequency the new entry point changes.
+
 ## Freshness model
 
 `ticktick-py` syncs its local `state` only once, at client construction, and the server is a long-lived process that is not the only writer (the same account is edited in the app on other devices). `freshness.ensure_fresh(client)` re-syncs on demand, throttled to at most one sync per window (default 15s, env `TICKTICK_MCP_SYNC_TTL_SECONDS`):
