@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ticktick-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "MCP server for TickTick task management via the v2 API with field-preserving updates, day-of-week validation, completion tracking, and read-after-write verification."
 readme = "README.md"
 license = "GPL-3.0-or-later"
