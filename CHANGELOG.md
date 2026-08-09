@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-08-09
+
+### Fixed
+
+- The container image keeps credentials and cached state on a mountable volume. The config directory defaulted to a path under the container's own home directory, which nothing told anyone to mount - so the `.env`, the cached OAuth token, the v2 session token and the completion-tracking database all went with the container. Every start then fell back to a password signon, and TickTick throttles those: a container restarted a few times locks itself out for 15-30 minutes. The image now sets `TICKTICK_MCP_DOTENV_DIR` to `/data` and declares it a volume. Installs from source are unaffected - the resolution order is unchanged, and only the image sets this variable.
+- The registry entry declares what the image needs: the directory to mount, and the four `TICKTICK_*` credential variables for anyone supplying them directly instead of mounting a `.env`. The client secret and password are marked as secrets so a client handles them accordingly. Previously it declared nothing, so someone configuring this server from the MCP registry got a container with no credentials and no indication of what was missing.
+
+  **Mount a directory that has already been authorised, not an empty volume.** The OAuth step opens a browser and waits for a URL pasted back on standard input - which for a stdio server is the JSON-RPC channel - so it cannot run inside the container, and a container without a cached token consumes client requests waiting for input rather than reporting anything. Run `ticktick-mcp auth` on a machine with a browser and mount the directory it wrote to. The registry entry asks for that path and will not run without it: no default can work, since a bare name is a named volume created empty, a relative path binds under the client's own working directory, and `~` is rejected by docker when it is exec'd without a shell.
+
+  **If you were already working around this by mounting at the old in-container path** (`/root/.config/ticktick-mcp` or similar), move the mount to `/data` - the old path is no longer read, and a mount left there is silently unused.
+
+### Documentation
+
+- The README documents the container: where images are published, that tags carry a `v` prefix, that authorisation must happen on a machine with a browser and the resulting directory be mounted in, and how to pass credentials as environment variables while still mounting that directory for the token cache. The environment-variable form names each variable without a value, so nothing secret appears in the command or in shell history. It also notes that authorising needs a source install, since the PyPI name `ticktick-mcp` belongs to an unrelated project, and that `--user` is needed so the container does not leave root-owned files that stop a later host-side run caching its session token.
+
 ## [0.3.1] - 2026-08-09
 
 ### Added
@@ -103,7 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/partymola/ticktick-mcp/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/partymola/ticktick-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/partymola/ticktick-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/partymola/ticktick-mcp/compare/v0.1.3...v0.2.0

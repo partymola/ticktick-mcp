@@ -1,0 +1,23 @@
+# The build context is uploaded to the daemon whole, and config/ holds the
+# .env with a plaintext password. The Dockerfile COPYs named paths only, so
+# nothing published is affected - this keeps a local `docker build .` from
+# handing them over in the first place.
+config/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak
+*.backup
+
+.git/
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+
+# These two need the ** prefix; the ones above only ever occur at the root.
+# A bare pattern matches the context root only, so `__pycache__/` would miss
+# every nested one.
+**/__pycache__/
+**/*.egg-info/

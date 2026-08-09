@@ -102,6 +102,41 @@ Then ask Claude things like:
 - "Mark the grocery task as done."
 - "Move the budget task to the Finance project."
 
+## Docker
+
+Images are published to `ghcr.io/partymola/ticktick-mcp`. Tags carry a `v` prefix (`:vX.Y.Z`), and `:latest` follows the most recent release.
+
+**Authorise on a machine with a browser first, then mount that directory in.** This is the only route, and it holds even with `docker run -it`: the underlying library opens the browser itself and **never prints the URL**, so there is nothing to copy out of a container that has no browser. It then waits for that URL on standard input, which for a stdio server is the JSON-RPC channel - so a container started against a directory with no cached token does not fail cleanly either, it consumes your client's requests waiting for input that never arrives.
+
+Authorising needs a source install ([Install](#install)) and the credentials from [Credentials](#credentials) - there is no published package to run it from. **Do not `pip install ticktick-mcp`:** that name on PyPI belongs to an unrelated project with a near-identical description.
+
+```bash
+.venv/bin/ticktick-mcp auth       # once, on the host, in a terminal
+
+claude mcp add -s user ticktick -- \
+  docker run --rm -i --user $(id -u):$(id -g) \
+  -v ~/.config/ticktick-mcp:/data \
+  ghcr.io/partymola/ticktick-mcp:latest
+```
+
+`-i` is required - the server speaks JSON-RPC over stdin and stdout.
+
+`--user` is there because the container runs as root by default, and anything it writes into the mounted directory becomes root-owned - after which the host-side `ticktick-mcp` can no longer update its session-token cache and falls back to a throttled signon on every start. You will run it on the host again: the OAuth token has no refresh, so `auth` recurs at expiry.
+
+**Mount a directory that is already authorised, never an empty volume.** `/data` holds the `.env`, the cached OAuth token, the v2 session token and the completion-tracking database. A fresh volume has none of them, and the password-signon fallback is throttled into a 15-30 minute lockout.
+
+If you would rather not keep a `.env` on disk at all, pass the credentials as environment variables instead. The mount is still needed - it holds the token cache, not just the `.env`:
+
+```bash
+docker run --rm -i --user $(id -u):$(id -g) \
+  -v ~/.config/ticktick-mcp:/data \
+  -e TICKTICK_CLIENT_ID -e TICKTICK_CLIENT_SECRET \
+  -e TICKTICK_USERNAME -e TICKTICK_PASSWORD \
+  ghcr.io/partymola/ticktick-mcp:latest
+```
+
+Naming each variable without a value passes it through from your shell, so no secret appears in the command or in shell history. These **override** a mounted `.env`: the file is loaded without `override`, so anything already in the environment wins. Authorising still needs those variables exported on the host, since `auth` has no `.env` to read either.
+
 ## CLI
 
 ```
@@ -163,7 +198,7 @@ The TickTick account can be edited from the app on other devices while the serve
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TICKTICK_MCP_DOTENV_DIR` | `~/.config/ticktick-mcp/` | Directory holding the `.env` file (the `--dotenv-dir` argument takes precedence) |
+| `TICKTICK_MCP_DOTENV_DIR` | `~/.config/ticktick-mcp/` | Directory holding the `.env`, the cached tokens and the completion-tracking database (the `--dotenv-dir` argument takes precedence). The container image sets it to `/data` |
 | `TICKTICK_MCP_SYNC_TTL_SECONDS` | `15` | Minimum seconds between on-demand read re-syncs |
 | `TICKTICK_MCP_INIT_RETRY_SECONDS` | `60` | Cooldown before retrying client login after a failed first connection |
 | `TICKTICK_MCP_RATELIMIT_RETRY_SECONDS` | `300` | Cooldown before retrying login after a rate-limit (HTTP 429); longer than the init cooldown because a 429 clears slowly and each retry prolongs it |
@@ -185,7 +220,7 @@ Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_
 
 ## Data safety
 
-A pre-commit hook (`scripts/check-no-data.sh`) blocks accidentally committing databases, credentials, and large files - `*.db` and backup variants, anything under `config/*.json` / `config/*.env` (except `*.example.*`), and files over 100KB (except `uv.lock`). Install it after cloning:
+A pre-commit hook (`scripts/check-no-data.sh`) blocks accidentally committing databases, credentials, and large files - `*.db` and backup variants, everything under `config/` except `.gitkeep` and `*.example*`, and files over 100KB (except `uv.lock`). Install it after cloning:
 
 ```bash
 ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit

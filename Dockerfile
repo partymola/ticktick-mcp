@@ -26,6 +26,14 @@ WORKDIR /app
 
 COPY --from=build /app /app
 
+# Must be set in this stage: an ENV above a later FROM belongs to that stage and
+# never reaches the image. The default resolves under the container's own HOME,
+# which nothing is told to mount - so the cached OAuth token and v2 session
+# token go with the container and a password signon runs on every start, which
+# TickTick throttles.
+ENV TICKTICK_MCP_DOTENV_DIR=/data
+VOLUME ["/data"]
+
 # Ownership proof for the MCP registry (must match server.json name).
 LABEL io.modelcontextprotocol.server.name="io.github.partymola/ticktick-mcp"
 

@@ -13,7 +13,61 @@
       "identifier": "ghcr.io/partymola/ticktick-mcp:v0.1.1",
       "transport": {
         "type": "stdio"
-      }
+      },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "--user",
+          "value": "{uid_gid}",
+          "isRequired": true,
+          "variables": {
+            "uid_gid": {
+              "description": "Your own user and group id, as `uid:gid` (run `id -u`:`id -g`). The container runs as root otherwise, and anything it writes into the mounted directory becomes root-owned - after which a host-side `ticktick-mcp` can no longer update its session-token cache and falls back to a signon TickTick throttles.",
+              "placeholder": "1000:1000",
+              "isRequired": true
+            }
+          }
+        },
+        {
+          "type": "named",
+          "name": "-v",
+          "value": "{data_volume}:/data",
+          "isRequired": true,
+          "variables": {
+            "data_volume": {
+              "description": "Absolute path to the host directory of an ALREADY AUTHORISED setup - it must already hold the cached OAuth token written by running `ticktick-mcp auth` in a terminal. Not an empty volume and not a relative path: the OAuth step cannot run inside the container, and a container without a cached token reads standard input, which is the JSON-RPC channel. Also holds the .env, the v2 session token and the completion-tracking database.",
+              "placeholder": "/home/you/.config/ticktick-mcp",
+              "format": "filepath",
+              "isRequired": true
+            }
+          }
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "TICKTICK_CLIENT_ID",
+          "description": "TickTick OAuth client ID. Needed only if you are not mounting a .env file.",
+          "isRequired": false
+        },
+        {
+          "name": "TICKTICK_CLIENT_SECRET",
+          "description": "TickTick OAuth client secret. Needed only if you are not mounting a .env file.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "TICKTICK_USERNAME",
+          "description": "TickTick account username. Needed only if you are not mounting a .env file.",
+          "isRequired": false
+        },
+        {
+          "name": "TICKTICK_PASSWORD",
+          "description": "TickTick account password. Needed only if you are not mounting a .env file.",
+          "isRequired": false,
+          "isSecret": true
+        }
+      ]
     }
   ]
 }
