@@ -77,7 +77,8 @@ def _load_env() -> Path:
             env_file,
         )
         try:
-            dotenv_dir.mkdir(parents=True, exist_ok=True)
+            # Holds the .env, the OAuth token cache and the v2 session token.
+            dotenv_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except OSError as exc:
             logger.warning(
                 "ticktick-mcp: could not create config dir %s: %s",

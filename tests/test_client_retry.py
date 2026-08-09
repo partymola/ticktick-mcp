@@ -22,10 +22,12 @@ def _reset_singleton():
     TickTickClientSingleton._instance = None
     TickTickClientSingleton._last_failure_monotonic = None
     TickTickClientSingleton._last_error = None
+    TickTickClientSingleton._last_status = None
     yield
     TickTickClientSingleton._instance = None
     TickTickClientSingleton._last_failure_monotonic = None
     TickTickClientSingleton._last_error = None
+    TickTickClientSingleton._last_status = None
 
 
 def _expire_cooldown():
@@ -94,16 +96,35 @@ class TestInitRetry:
 
 class TestRateLimitDetection:
     def test_is_rate_limited_true_on_429(self):
-        TickTickClientSingleton._last_error = "Could Not Complete Request (HTTP 429)"
+        TickTickClientSingleton._last_status = 429
         assert TickTickClientSingleton.is_rate_limited() is True
 
     def test_is_rate_limited_false_on_other_error(self):
-        TickTickClientSingleton._last_error = "Could Not Complete Request (HTTP 500)"
+        TickTickClientSingleton._last_status = 500
         assert TickTickClientSingleton.is_rate_limited() is False
 
     def test_is_rate_limited_false_when_no_error(self):
-        TickTickClientSingleton._last_error = None
+        TickTickClientSingleton._last_status = None
         assert TickTickClientSingleton.is_rate_limited() is False
+
+    def test_a_message_that_merely_contains_429_is_not_a_rate_limit(self):
+        """Read the status, never the text.
+
+        A task id or a URL containing "429" would otherwise put the server
+        into a five-minute cooldown and tell the agent to stop retrying.
+        """
+        TickTickClientSingleton._last_status = None
+        TickTickClientSingleton._last_error = "Max retries exceeded with url: /api/v2/task/6429abc"
+        assert TickTickClientSingleton.is_rate_limited() is False
+
+    def test_the_status_is_taken_from_a_real_construction_failure(self):
+        with patch.object(
+            client_module,
+            "TickTickClient",
+            side_effect=client_module.TickTickHTTPError("nope (HTTP 429)", status=429),
+        ):
+            assert TickTickClientSingleton.get_client() is None
+        assert TickTickClientSingleton.is_rate_limited() is True
 
     def test_429_uses_longer_cooldown(self):
         """After a 429, a retry attempt is blocked for the rate-limit cooldown
@@ -111,7 +132,9 @@ class TestRateLimitDetection:
         with patch.object(
             client_module,
             "TickTickClient",
-            side_effect=RuntimeError("Could Not Complete Request (HTTP 429)"),
+            side_effect=client_module.TickTickHTTPError(
+                "Could Not Complete Request (HTTP 429)", status=429
+            ),
         ):
             assert TickTickClientSingleton.get_client() is None
 
@@ -180,6 +203,54 @@ class TestV2TokenCache:
             (tmp_path / client_module._V2_TOKEN_FILENAME).write_text("not json{")
             assert client_module._read_v2_token() is None
 
+    def test_an_undecodable_cache_is_deleted_rather_than_bricking_the_server(self, tmp_path):
+        """read_text raises UnicodeDecodeError, a ValueError, not an OSError.
+
+        It escaped before the injection point, so nothing cleared the cache
+        and every retry failed identically - unrecoverable without hand-
+        deleting a file users are told to keep.
+        """
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            path = tmp_path / client_module._V2_TOKEN_FILENAME
+            path.write_bytes(b"\xff\xfe not utf-8")
+            assert client_module._read_v2_token() is None
+            assert not path.exists()
+
+    def test_a_json_cache_of_the_wrong_shape_is_deleted(self, tmp_path):
+        with patch.object(client_module, "dotenv_dir_path", tmp_path):
+            path = tmp_path / client_module._V2_TOKEN_FILENAME
+            path.write_text("not json{")
+            assert client_module._read_v2_token() is None
+            assert not path.exists()
+
+    def test_the_token_is_never_written_at_a_readable_mode(self, tmp_path):
+        """A write-then-chmod leaves it readable for the length of the write."""
+        seen = []
+        real_open = os.open
+
+        def spy(path, flags, mode=0o777, **kwargs):
+            seen.append(mode)
+            return real_open(path, flags, mode, **kwargs)
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module.os, "open", spy),
+        ):
+            client_module._write_v2_token("tok")
+
+        assert seen == [0o600]
+
+    def test_a_failure_to_tighten_does_not_lose_the_token(self, tmp_path):
+        def refuse(fd, mode):
+            raise PermissionError(1, "Operation not permitted")
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module.os, "fchmod", refuse),
+        ):
+            client_module._write_v2_token("tok")
+            assert client_module._read_v2_token() == "tok"
+
     def test_write_ignores_non_string(self, tmp_path):
         """A mocked client's non-string access_token must not be serialised."""
         with patch.object(client_module, "dotenv_dir_path", tmp_path):
@@ -228,7 +299,9 @@ class TestConstructClientTokenReuse:
         class FakeClient:
             def __init__(self, username, password, oauth):
                 if client_module._INJECTED_V2_TOKEN:
-                    raise RuntimeError("Could Not Complete Request (HTTP 401)")
+                    raise client_module.TickTickHTTPError(
+                        "Could Not Complete Request (HTTP 401)", status=401
+                    )
                 self.access_token = "fresh-tok"
 
         with (
@@ -243,6 +316,58 @@ class TestConstructClientTokenReuse:
             assert client_module._INJECTED_V2_TOKEN is None
             # Stale cache cleared, then refreshed with the newly-issued token.
             assert client_module._read_v2_token() == "fresh-tok"
+
+
+class TestOnlyARejectionCostsTheCachedToken:
+    """A transient failure must not delete the token and re-run signon.
+
+    TickTick throttles user/signon, which is the whole reason the cache
+    exists. Discarding a valid session token in answer to a 429 then POSTs
+    signon immediately, prolonging the block.
+    """
+
+    def _construct_with(self, exc, tmp_path):
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                if client_module._INJECTED_V2_TOKEN:
+                    raise exc
+                self.access_token = "fresh-tok"
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "TickTickClient", FakeClient),
+            patch.object(client_module, "OAuth2", MagicMock()),
+        ):
+            client_module._write_v2_token("valid-tok")
+            raised = None
+            try:
+                TickTickClientSingleton._construct_client()
+            except Exception as e:  # noqa: BLE001 - the test is what it raises
+                raised = e
+            return raised, client_module._read_v2_token()
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            client_module.TickTickHTTPError("throttled (HTTP 429)", status=429),
+            client_module.TickTickHTTPError("server error (HTTP 500)", status=500),
+            TimeoutError("read timed out"),
+            ConnectionResetError("reset"),
+            RuntimeError("something nobody classified"),
+        ],
+        ids=["rate-limit", "server-error", "timeout", "reset", "unclassified"],
+    )
+    def test_a_transient_failure_keeps_the_cached_token(self, exc, tmp_path):
+        raised, cached = self._construct_with(exc, tmp_path)
+        assert raised is not None
+        assert cached == "valid-tok"
+
+    @pytest.mark.parametrize("status", [401, 403], ids=["unauthorised", "forbidden"])
+    def test_a_rejection_clears_it(self, status, tmp_path):
+        exc = client_module.TickTickHTTPError(f"rejected (HTTP {status})", status=status)
+        raised, cached = self._construct_with(exc, tmp_path)
+        assert raised is None
+        assert cached == "fresh-tok"
 
     def test_no_cache_logs_in_and_caches_token(self, tmp_path):
         class FakeClient:

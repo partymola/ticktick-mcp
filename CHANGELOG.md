@@ -7,9 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A transient failure while resuming a cached session no longer discards the session token and re-runs the login. Any exception at all cleared the cache and immediately POSTed to `user/signon` - so a rate limit, a read timeout, a reset connection or a 5xx cost a working session and hit the one endpoint TickTick throttles, which is what the cache exists to avoid. Only an outright rejection, HTTP 401 or 403, clears it now; everything else propagates with the cache intact.
+- A rate limit is recognised from the response status rather than by looking for "429" in the error text. An unrelated failure whose message happened to contain those digits - a task id, a URL - put the server into a five-minute cooldown and told the agent to stop retrying.
+- A cached session token that cannot be decoded is discarded instead of bricking the server. Only unreadable-file errors were handled, so a file that was not valid UTF-8 failed before anything could clear it, made every retry fail identically, and reported as a credentials problem. It is now deleted and rebuilt on the next call.
+- The cached session token is created with owner-only permissions rather than written first and narrowed afterwards, so it is never briefly world-readable, and a failure to narrow it can no longer leave it that way permanently. The OAuth token cache, written by the underlying library with no mode of its own, is narrowed too, and the config directory is created owner-only. On POSIX; Windows governs access by ACLs. Files created by an earlier version are narrowed the next time a token is saved - to check now, `ls -la` the config directory.
+
 ### Packaging
 
-- The container image is built on Python 3.14 instead of 3.13, and 3.14 joins the supported-version classifiers. `requires-python` is unchanged at `>=3.13`: the package still supports both, and only the published image moves. Installing from PyPI is unaffected - that uses whichever Python the user already has.
+- The container image is built on Python 3.14 instead of 3.13, and 3.14 joins the supported-version classifiers. `requires-python` is unchanged at `>=3.13`: the package still supports both, and only the published image moves. The published container is the distribution channel here - the `ticktick-mcp` name on PyPI belongs to an unrelated project.
 - Dependency updates are automated. Every dependency, the base image and the CI actions are pinned to exact versions, so nothing changes without a deliberate bump; Dependabot now proposes those bumps rather than leaving the pins to rot.
 
 ## [0.3.0] - 2026-08-03

@@ -31,20 +31,41 @@ from .config import (
 logger = logging.getLogger(__name__)
 
 
+class TickTickHTTPError(RuntimeError):
+    """A TickTick request that did not return 200, carrying the status code.
+
+    A ``RuntimeError`` subclass so existing handlers still catch it.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
+
+
+#: Statuses that mean TickTick judged the credentials unusable. Everything
+#: else - a rate limit, a 5xx, a timeout, a reset connection - clears on its
+#: own, and answering it by discarding the session token re-runs the throttled
+#: signon that the token cache exists to avoid.
+_REJECTION_CODES = frozenset({401, 403})
+
+
 def _augmented_check_status_code(response, error_message):
-    """Drop-in for ticktick-py's ``check_status_code`` that includes the HTTP
-    status code in the raised message.
+    """Drop-in for ticktick-py's ``check_status_code`` that records the status.
 
     ticktick-py raises a bare ``RuntimeError('Could Not Complete Request')``
-    with no status code, so a login rate-limit (HTTP 429) is indistinguishable
-    downstream from any other failure. Including the code lets the singleton
-    recognise a rate-limit and tell agents to stop retrying.
+    with no status code, so a login rate-limit is indistinguishable downstream
+    from a rejected credential.
     """
     status = getattr(response, "status_code", None)
     if status != 200:
         if status is not None:
-            raise RuntimeError(f"{error_message} (HTTP {status})")
-        raise RuntimeError(error_message)
+            raise TickTickHTTPError(f"{error_message} (HTTP {status})", status=status)
+        raise TickTickHTTPError(error_message)
+
+
+def _status_of(exc: BaseException) -> Optional[int]:
+    """Return the HTTP status an exception carries, if any."""
+    return getattr(exc, "status", None)
 
 
 def _augment_check_status_code() -> None:
@@ -84,14 +105,23 @@ def _v2_token_path():
 
 
 def _read_v2_token() -> Optional[str]:
-    """Return the cached v2 session token, or ``None`` if absent/unreadable."""
+    """Return the cached v2 session token, or ``None`` if absent/unreadable.
+
+    An unreadable cache is deleted so the next call rebuilds it. Without
+    that, a file that cannot be decoded is unrecoverable without hand-
+    deleting a file the docs tell users to keep.
+    """
     try:
         raw = _v2_token_path().read_text()
     except OSError:
         return None
+    except ValueError:
+        _delete_v2_token()
+        return None
     try:
         data = json.loads(raw)
     except ValueError:
+        _delete_v2_token()
         return None
     token = data.get("token") if isinstance(data, dict) else None
     return token or None
@@ -107,10 +137,26 @@ def _write_v2_token(token: Optional[str]) -> None:
         return
     path = _v2_token_path()
     try:
-        path.write_text(json.dumps({"token": token}))
-        os.chmod(path, 0o600)
+        # 0600 at creation, not chmodded after: a write-then-chmod leaves the
+        # token in a world-readable file for the duration of every refresh,
+        # and leaves it there permanently if the chmod fails.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            try:
+                os.fchmod(handle.fileno(), 0o600)
+            except (OSError, AttributeError):
+                logger.warning("Could not tighten permissions on the cached v2 token")
+            handle.write(json.dumps({"token": token}))
     except OSError as exc:
         logger.warning("Could not cache TickTick v2 token: %s", exc)
+
+
+def _tighten(path) -> None:
+    """Narrow a credential file to owner-only; best-effort, no raise."""
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        logger.warning("Could not tighten permissions on %s", getattr(path, "name", path))
 
 
 def _delete_v2_token() -> None:
@@ -194,6 +240,7 @@ class TickTickClientSingleton:
     _instance: Optional[TickTickClient] = None
     _last_failure_monotonic: Optional[float] = None
     _last_error: Optional[str] = None
+    _last_status: Optional[int] = None
 
     @classmethod
     def get_client(cls) -> Optional[TickTickClient]:
@@ -221,12 +268,14 @@ class TickTickClientSingleton:
             cls._instance = cls._construct_client()
             cls._last_failure_monotonic = None
             cls._last_error = None
+            cls._last_status = None
             logger.info("TickTick client initialised.")
         except Exception as exc:
             logger.error("Failed to initialise TickTick client: %s", exc, exc_info=True)
             cls._instance = None
             cls._last_failure_monotonic = time.monotonic()
             cls._last_error = str(exc)
+            cls._last_status = _status_of(exc)
 
         return cls._instance
 
@@ -239,12 +288,12 @@ class TickTickClientSingleton:
     def is_rate_limited(cls) -> bool:
         """True when the most recent init failure was a login rate-limit.
 
-        TickTick throttles the username/password ``user/signon`` endpoint
-        with HTTP 429; the augmented ``check_status_code`` puts that code in
-        the error message. Used to lengthen the retry backoff and to tell
-        agents to stop retrying rather than hammer the throttled login.
+        TickTick throttles the username/password ``user/signon`` endpoint with
+        HTTP 429. Read from the status the exception carries, never from the
+        message text: a URL or a task id containing "429" would otherwise put
+        the server into a five-minute cooldown and tell the agent to stop.
         """
-        return "429" in (cls._last_error or "")
+        return cls._last_status == 429
 
     @classmethod
     def _construct_client(cls) -> TickTickClient:
@@ -252,20 +301,27 @@ class TickTickClientSingleton:
         possible to avoid the throttled signon endpoint.
 
         A cached token is injected and validated by the client's own
-        ``_settings()``/``sync()`` startup calls; if it is stale those raise,
-        the cache is cleared, and a single fresh username/password login runs
-        and repopulates the cache. With no cache, a fresh login runs and its
-        token is cached for next time.
+        ``_settings()``/``sync()`` startup calls. Only a rejection - a status
+        in :data:`_REJECTION_CODES` - clears the cache and runs a fresh
+        username/password login; every other failure propagates with the
+        cache intact, so a rate limit or a dropped connection cannot cost a
+        working session token and re-run the throttled signon. With no cache,
+        a fresh login runs and its token is cached for next time.
         """
         global _INJECTED_V2_TOKEN
 
         def _new_oauth() -> OAuth2:
-            return OAuth2(
+            cache_path = dotenv_dir_path / ".token-oauth"
+            oauth = OAuth2(
                 client_id=CLIENT_ID,
                 client_secret=CLIENT_SECRET,
                 redirect_uri=REDIRECT_URI,
-                cache_path=str(dotenv_dir_path / ".token-oauth"),
+                cache_path=str(cache_path),
             )
+            # ticktick-py writes this file with no mode of its own, so a
+            # bearer token lands at whatever the umask gives.
+            _tighten(cache_path)
+            return oauth
 
         cached = _read_v2_token()
         if cached:
@@ -275,7 +331,11 @@ class TickTickClientSingleton:
                 logger.info("TickTick session resumed from cached v2 token.")
                 return client
             except Exception as exc:
-                logger.info("Cached TickTick v2 token rejected (%s); logging in fresh.", exc)
+                if _status_of(exc) not in _REJECTION_CODES:
+                    raise
+                logger.info(
+                    "Cached TickTick v2 token rejected (HTTP %s); logging in fresh.", exc.status
+                )
                 _delete_v2_token()
             finally:
                 _INJECTED_V2_TOKEN = None

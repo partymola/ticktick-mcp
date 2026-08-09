@@ -31,6 +31,17 @@ ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
 - **Verification** (`src/ticktick_mcp/verification.py`) — read-after-write check that compares what was sent to the API against what came back, attaching `_verification_warnings` to mutated tasks.
 - **Freshness** (`src/ticktick_mcp/freshness.py`) — on-demand, throttled `client.sync()` so long-lived reads do not go stale (see below).
 
+## Session token cache and failure classification
+
+`ticktick-py` re-runs a full username/password login on every client construction, and TickTick throttles `user/signon` with HTTP 429. The v2 session token is therefore cached at `.token-v2` and injected on the next construction, skipping signon — the same thing a browser does by keeping its cookie.
+
+That makes deleting the cache a destructive act, so it is gated on classification, not on "something went wrong":
+
+- **Only a rejection clears the cache** — a status in `_REJECTION_CODES` (401, 403), meaning TickTick judged the credentials unusable. **Never widen it to a condition that clears on its own.** A 429 in that set is a feedback loop: it discards a valid session and immediately POSTs the endpoint that is throttling us. Everything else — a 5xx, a read timeout, a reset connection, an exception nobody anticipated — propagates with the cache intact, and `get_client`'s cooldown handles the retry. Pinned by `TestOnlyARejectionCostsTheCachedToken` in `tests/test_client_retry.py`.
+- **Status comes from the exception, never from its message.** `_augmented_check_status_code` raises `TickTickHTTPError` carrying `status`; `is_rate_limited` reads that. Matching `"429"` against the text fires on any error whose message happens to contain those digits — a task id, a URL — putting the server into a five-minute cooldown and telling the agent to stop. Pinned by `test_a_message_that_merely_contains_429_is_not_a_rate_limit`.
+- **An unreadable cache is deleted, not merely skipped.** `read_text` raises `UnicodeDecodeError`, a `ValueError` and not an `OSError`, so a non-UTF-8 file escaped before anything could clear it and every retry failed identically. Pinned by `test_an_undecodable_cache_is_deleted_rather_than_bricking_the_server`.
+- **Both credential files are owner-only.** `.token-v2` is created 0600 rather than written and chmodded after, and the tightening is best-effort so it cannot cost the token. `.token-oauth` is written by `ticktick-py` with no mode of its own, so it is narrowed after construction. The config directory is created 0700.
+
 ## Freshness model
 
 `ticktick-py` syncs its local `state` only once, at client construction, and the server is a long-lived process that is not the only writer (the same account is edited in the app on other devices). `freshness.ensure_fresh(client)` re-syncs on demand, throttled to at most one sync per window (default 15s, env `TICKTICK_MCP_SYNC_TTL_SECONDS`):
