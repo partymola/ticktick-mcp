@@ -241,6 +241,8 @@ class TickTickClientSingleton:
     _last_failure_monotonic: Optional[float] = None
     _last_error: Optional[str] = None
     _last_status: Optional[int] = None
+    #: One shape-based cache clear per process. See _is_rejection.
+    _shape_recovery_used: bool = False
 
     @classmethod
     def get_client(cls) -> Optional[TickTickClient]:
@@ -296,28 +298,73 @@ class TickTickClientSingleton:
         return cls._last_status == 429
 
     @classmethod
+    def _is_rejection(cls, exc: BaseException) -> bool:
+        """True when the cached token is the thing that failed.
+
+        A status in _REJECTION_CODES says so outright. A response of a shape
+        the client cannot read says so only circumstantially, so that branch
+        fires at most once per process: a genuine schema change would
+        otherwise cost a signon on every cooldown, on the endpoint the cache
+        exists to protect.
+        """
+        if _status_of(exc) in _REJECTION_CODES:
+            return True
+        if isinstance(exc, (KeyError, TypeError, AttributeError)) and not cls._shape_recovery_used:
+            cls._shape_recovery_used = True
+            return True
+        return False
+
+    @classmethod
     def _construct_client(cls) -> TickTickClient:
         """Build a ``TickTickClient``, reusing a cached v2 session token when
         possible to avoid the throttled signon endpoint.
 
-        A cached token is injected and validated by the client's own
-        ``_settings()``/``sync()`` startup calls. Only a rejection - a status
-        in :data:`_REJECTION_CODES` - clears the cache and runs a fresh
-        username/password login; every other failure propagates with the
-        cache intact, so a rate limit or a dropped connection cannot cost a
-        working session token and re-run the throttled signon. With no cache,
-        a fresh login runs and its token is cached for next time.
+        A cached token is injected and the client's own ``_settings()``/
+        ``sync()`` startup calls then exercise it. Only a rejection clears the
+        cache and runs a fresh username/password login: either a status in
+        :data:`_REJECTION_CODES`, or a response of an unusable shape while a
+        token was injected. Every other failure propagates with the cache
+        intact, so a rate limit or a dropped connection cannot cost a working
+        session token and re-run the throttled signon. With no cache, a fresh
+        login runs and its token is cached for next time.
+
+        The shape case is a deliberate belt and it is bounded to one attempt
+        per process by :data:`_shape_recovery_used`. What TickTick answers to
+        a stale session cookie is not established here - if it is a 200 with
+        an unexpected body rather than a 401, nothing else would ever clear
+        the cache and every retry would fail identically. Being wrong the
+        other way, on a genuine schema change, costs one signon rather than
+        one per cooldown, which is why the flag exists.
         """
         global _INJECTED_V2_TOKEN
 
         def _new_oauth() -> OAuth2:
             cache_path = dotenv_dir_path / ".token-oauth"
-            oauth = OAuth2(
-                client_id=CLIENT_ID,
-                client_secret=CLIENT_SECRET,
-                redirect_uri=REDIRECT_URI,
-                cache_path=str(cache_path),
-            )
+
+            def _build() -> OAuth2:
+                return OAuth2(
+                    client_id=CLIENT_ID,
+                    client_secret=CLIENT_SECRET,
+                    redirect_uri=REDIRECT_URI,
+                    cache_path=str(cache_path),
+                )
+
+            try:
+                oauth = _build()
+            except ValueError:
+                # ticktick-py's cache reader catches only IOError, so a file
+                # that is not JSON or not UTF-8 escapes and nothing clears it.
+                # Deleted and retried exactly once, and only around the
+                # construction - rebuilding this file needs a person at a
+                # browser, so a broad catch here would turn a transient
+                # failure into a mandatory re-authorisation.
+                logger.warning("Cached OAuth token is unreadable; discarding it.")
+                try:
+                    cache_path.unlink()
+                except OSError:
+                    pass
+                oauth = _build()
+
             # ticktick-py writes this file with no mode of its own, so a
             # bearer token lands at whatever the umask gives.
             _tighten(cache_path)
@@ -331,10 +378,11 @@ class TickTickClientSingleton:
                 logger.info("TickTick session resumed from cached v2 token.")
                 return client
             except Exception as exc:
-                if _status_of(exc) not in _REJECTION_CODES:
+                if not cls._is_rejection(exc):
                     raise
                 logger.info(
-                    "Cached TickTick v2 token rejected (HTTP %s); logging in fresh.", exc.status
+                    "Cached TickTick v2 token rejected (%s); logging in fresh.",
+                    type(exc).__name__,
                 )
                 _delete_v2_token()
             finally:

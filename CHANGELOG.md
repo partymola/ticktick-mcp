@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ticktick-mcp auth` authorises at a terminal and exits. TickTick issues no refresh token, so the OAuth step opens a browser and asks for a URL to be pasted back - and there was no way to do that outside the server, where the prompt reads the JSON-RPC channel. An unauthorised first tool call therefore opened a browser on the host and blocked, and in a container could not be completed at all. Run this once before registering the server, and again when the token expires.
+
 ### Fixed
+
+- The documented behaviour of the OAuth token was wrong: it does not refresh automatically, and there is no refresh token to do it with. The README now says what actually happens and when it recurs.
+- A cached OAuth token that cannot be read is discarded and rebuilt rather than failing every start. Only unreadable-file errors were handled by the underlying library, so a file that was not valid JSON or not UTF-8 escaped construction entirely and every retry failed identically, reporting a JSON parse error with no hint at the cause.
+- A cached session token is also discarded when the server's own startup calls come back in a shape it cannot read, not only when TickTick answers with an outright rejection. That case is limited to one attempt per run, so a change to TickTick's response format costs a single extra sign-in rather than one on every retry.
 
 - A transient failure while resuming a cached session no longer discards the session token and re-runs the login. Any exception at all cleared the cache and immediately POSTed to `user/signon` - so a rate limit, a read timeout, a reset connection or a 5xx cost a working session and hit the one endpoint TickTick throttles, which is what the cache exists to avoid. Only an outright rejection, HTTP 401 or 403, clears it now; everything else propagates with the cache intact.
 - A rate limit is recognised from the response status rather than by looking for "429" in the error text. An unrelated failure whose message happened to contain those digits - a task id, a URL - put the server into a five-minute cooldown and told the agent to stop retrying.

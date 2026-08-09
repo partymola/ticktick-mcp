@@ -59,15 +59,15 @@ TickTick sign-in needs two things: an OAuth app (client ID + secret) and your ow
    TICKTICK_PASSWORD=your_ticktick_password
    ```
 
-**Authorise once, at a terminal, before registering the server.** The OAuth step opens a browser and asks you to paste the URL you land on. TickTick issues no refresh token, so this recurs when the token expires (roughly every six months). Run it yourself first:
+**Authorise once, at a terminal, before registering the server:**
 
 ```bash
-.venv/bin/ticktick-mcp --dotenv-dir ~/.config/ticktick-mcp
+.venv/bin/ticktick-mcp auth
 ```
 
-Let it complete the browser step, then stop it. The token is cached next to your `.env` as `.token-oauth`, and every later start reuses it.
+It opens a browser and asks you to paste back the URL you land on, then exits. The token is cached next to your `.env` as `.token-oauth`, and every later start reuses it. TickTick issues no refresh token, so this recurs when the token expires - run the same command again.
 
-Do not let that step happen inside the MCP server. Its prompt reads from standard input, which is the JSON-RPC channel, so an unauthorised first tool call opens a browser on the host and blocks. In a container it cannot be completed at all - authorise on the host and mount the config directory in.
+Do not let that step happen inside the MCP server. The prompt reads from standard input, which for a stdio server is the JSON-RPC channel, so an unauthorised first tool call opens a browser on the host and blocks. In a container it cannot be completed at all - run `auth` on the host and mount the config directory in.
 
 The username/password half needs no separate step: the server logs in lazily on the first tool call and caches that session token as `.token-v2`, so it does not re-submit your credentials on every start.
 
@@ -101,7 +101,7 @@ ticktick-mcp --dotenv-dir PATH     Directory holding the .env file
 ticktick-mcp --version             Print the installed package version
 ```
 
-The server has no other subcommands - it is the MCP server. All task operations happen through the MCP tools below.
+`auth` is the only other subcommand, and it exists so the browser step happens at a terminal rather than inside the server. All task operations happen through the MCP tools below.
 
 ## MCP tools
 

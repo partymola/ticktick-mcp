@@ -25,11 +25,13 @@ def _reset_singleton():
     TickTickClientSingleton._last_failure_monotonic = None
     TickTickClientSingleton._last_error = None
     TickTickClientSingleton._last_status = None
+    TickTickClientSingleton._shape_recovery_used = False
     yield
     TickTickClientSingleton._instance = None
     TickTickClientSingleton._last_failure_monotonic = None
     TickTickClientSingleton._last_error = None
     TickTickClientSingleton._last_status = None
+    TickTickClientSingleton._shape_recovery_used = False
 
 
 def _expire_cooldown():
@@ -371,6 +373,34 @@ class TestOnlyARejectionCostsTheCachedToken:
         assert raised is None
         assert cached == "fresh-tok"
 
+    def test_an_unreadable_response_clears_it_once_and_only_once(self, tmp_path):
+        """The belt for a stale cookie answered with 200 and an odd body.
+
+        Bounded to one attempt per process: a genuine schema change raises
+        the same way, and without the bound it would cost a signon on every
+        cooldown - on the endpoint the cache exists to protect.
+        """
+        TickTickClientSingleton._shape_recovery_used = False
+
+        raised, cached = self._construct_with(KeyError("timeZone"), tmp_path)
+        assert raised is None
+        assert cached == "fresh-tok"
+
+        # Second time, same process: the cache survives and the error escapes.
+        raised, cached = self._construct_with(KeyError("timeZone"), tmp_path)
+        assert isinstance(raised, KeyError)
+        assert cached == "valid-tok"
+
+    def test_a_throttled_response_can_never_reach_the_shape_belt(self, tmp_path):
+        """429, 5xx and network failures raise types the belt does not name."""
+        TickTickClientSingleton._shape_recovery_used = False
+        raised, cached = self._construct_with(
+            client_module.TickTickHTTPError("throttled (HTTP 429)", status=429), tmp_path
+        )
+        assert raised is not None
+        assert cached == "valid-tok"
+        assert TickTickClientSingleton._shape_recovery_used is False
+
     def test_no_cache_logs_in_and_caches_token(self, tmp_path):
         class FakeClient:
             def __init__(self, username, password, oauth):
@@ -526,6 +556,39 @@ class TestTheCredentialFilesAreOwnerOnly:
             TickTickClientSingleton._construct_client()
 
         assert oct(cache.stat().st_mode & 0o777) == "0o600"
+
+    def test_an_unreadable_oauth_cache_is_discarded_rather_than_bricking(self, tmp_path):
+        """ticktick-py's cache reader catches only IOError.
+
+        A file that is not JSON or not UTF-8 escaped construction entirely,
+        so every retry failed identically with a JSON parse error - the same
+        brick the .token-v2 fix closed, by the other file.
+        """
+        cache = tmp_path / ".token-oauth"
+        cache.write_bytes(b"\xff\xfe not json either")
+        attempts = []
+
+        def fake_oauth2(**kwargs):
+            attempts.append(kwargs["cache_path"])
+            path = pathlib.Path(kwargs["cache_path"])
+            if path.exists():
+                # What the real reader does with a corrupt cache.
+                raise ValueError("Expecting property name enclosed in double quotes")
+            path.write_text("{}")
+            return MagicMock()
+
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                self.access_token = "tok"
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "OAuth2", fake_oauth2),
+            patch.object(client_module, "TickTickClient", FakeClient),
+        ):
+            TickTickClientSingleton._construct_client()
+
+        assert len(attempts) == 2, "the corrupt cache was not discarded and retried"
 
     def test_the_config_directory_is_created_owner_only(self, tmp_path, monkeypatch):
         """conftest replaces ticktick_mcp.config with a stub before any import.
