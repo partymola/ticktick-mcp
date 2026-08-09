@@ -391,6 +391,34 @@ class TestOnlyARejectionCostsTheCachedToken:
         assert isinstance(raised, KeyError)
         assert cached == "valid-tok"
 
+    def test_an_oauth_side_failure_never_costs_the_session_token(self, tmp_path):
+        """The OAuth step raises KeyError on a mis-pasted redirect URL.
+
+        Built inside the guarded try, that read as a verdict on the v2
+        session token - reached through the prompt the auth subcommand
+        exists to run.
+        """
+        TickTickClientSingleton._shape_recovery_used = False
+
+        class FakeClient:
+            def __init__(self, username, password, oauth):
+                raise AssertionError("should not be reached: OAuth failed first")
+
+        def failing_oauth(**kwargs):
+            raise KeyError("code")
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "OAuth2", failing_oauth),
+            patch.object(client_module, "TickTickClient", FakeClient),
+        ):
+            client_module._write_v2_token("valid-tok")
+            with pytest.raises(KeyError):
+                TickTickClientSingleton._construct_client()
+            assert client_module._read_v2_token() == "valid-tok"
+
+        assert TickTickClientSingleton._shape_recovery_used is False
+
     def test_a_throttled_response_can_never_reach_the_shape_belt(self, tmp_path):
         """429, 5xx and network failures raise types the belt does not name."""
         TickTickClientSingleton._shape_recovery_used = False
@@ -589,6 +617,30 @@ class TestTheCredentialFilesAreOwnerOnly:
             TickTickClientSingleton._construct_client()
 
         assert len(attempts) == 2, "the corrupt cache was not discarded and retried"
+
+    def test_a_transient_oauth_failure_does_not_discard_a_valid_cache(self, tmp_path):
+        """The narrow except ValueError is the point, not an accident.
+
+        Widened to Exception, a failed POST would unlink a good token and
+        send the user back to a browser - a network blip turned into a
+        mandatory re-authorisation.
+        """
+        cache = tmp_path / ".token-oauth"
+        cache.write_text('{"access_token": "still-good"}')
+
+        def flaky_oauth(**kwargs):
+            raise RuntimeError("POST request could not be completed")
+
+        with (
+            patch.object(client_module, "dotenv_dir_path", tmp_path),
+            patch.object(client_module, "OAuth2", flaky_oauth),
+            patch.object(client_module, "TickTickClient", MagicMock()),
+        ):
+            with pytest.raises(RuntimeError):
+                TickTickClientSingleton._construct_client()
+
+        assert cache.exists(), "a transient failure discarded a valid OAuth cache"
+        assert "still-good" in cache.read_text()
 
     def test_the_config_directory_is_created_owner_only(self, tmp_path, monkeypatch):
         """conftest replaces ticktick_mcp.config with a stub before any import.

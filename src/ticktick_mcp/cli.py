@@ -35,7 +35,10 @@ def _run_auth() -> int:
     """
     from .client import TickTickClientSingleton
 
-    print("Authorising with TickTick. A browser will open; paste back the URL you land on.")
+    print(
+        "Contacting TickTick. If a browser opens, paste back the URL you land on. "
+        "Already-valid credentials are re-checked against the server, not just read."
+    )
     client = TickTickClientSingleton.get_client()
     if client is None:
         print(f"Authorisation failed: {TickTickClientSingleton.last_error()}", file=sys.stderr)

@@ -309,6 +309,11 @@ class TickTickClientSingleton:
         """
         if _status_of(exc) in _REJECTION_CODES:
             return True
+        # KeyError and TypeError are both observed from the startup calls
+        # against malformed 200 bodies - an empty dict, a TickTick error body,
+        # a list, a null, an HTML page. AttributeError is a widening guess,
+        # not a shape anyone has seen; it is harmless only because of the
+        # one-shot flag.
         if isinstance(exc, (KeyError, TypeError, AttributeError)) and not cls._shape_recovery_used:
             cls._shape_recovery_used = True
             return True
@@ -370,11 +375,18 @@ class TickTickClientSingleton:
             _tighten(cache_path)
             return oauth
 
+        # Built once, outside the try below. The OAuth step raises KeyError on
+        # a mis-pasted redirect URL and on a token response with no
+        # access_token, and inside that try those would be read as a verdict
+        # on the v2 session token and cost it - through the prompt the auth
+        # subcommand exists to run.
+        oauth = _new_oauth()
+
         cached = _read_v2_token()
         if cached:
             _INJECTED_V2_TOKEN = cached
             try:
-                client = TickTickClient(username=USERNAME, password=PASSWORD, oauth=_new_oauth())
+                client = TickTickClient(username=USERNAME, password=PASSWORD, oauth=oauth)
                 logger.info("TickTick session resumed from cached v2 token.")
                 return client
             except Exception as exc:
@@ -388,6 +400,6 @@ class TickTickClientSingleton:
             finally:
                 _INJECTED_V2_TOKEN = None
 
-        client = TickTickClient(username=USERNAME, password=PASSWORD, oauth=_new_oauth())
+        client = TickTickClient(username=USERNAME, password=PASSWORD, oauth=oauth)
         _write_v2_token(getattr(client, "access_token", None))
         return client

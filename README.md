@@ -59,6 +59,15 @@ TickTick sign-in needs two things: an OAuth app (client ID + secret) and your ow
    TICKTICK_PASSWORD=your_ticktick_password
    ```
 
+3. This file holds your account password in plain text, and the server does not create it, so tighten it yourself:
+
+   ```bash
+   chmod 700 ~/.config/ticktick-mcp
+   chmod 600 ~/.config/ticktick-mcp/.env
+   ```
+
+   The two token files beside it are created owner-only, and a config directory the server creates is too - but one it finds already there is left as it is.
+
 **Authorise once, at a terminal, before registering the server:**
 
 ```bash
