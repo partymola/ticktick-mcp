@@ -1,6 +1,6 @@
 # Named stage rather than a bare `COPY --from=<image>`: Dependabot reads FROM
 # instructions, so this is what keeps the uv pin under automated updates.
-FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
+FROM ghcr.io/astral-sh/uv:0.12.3@sha256:2d890623d310b57771ce840f0da5eed5fc6d657da05ffaa45d82797b53fa3abc AS uv
 
 # Build stage: uv installs from uv.lock, so the image is built from the exact
 # resolved set rather than whatever a fresh resolve would pick today.
