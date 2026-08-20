@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Packaging
 
-- The package declares `Operating System :: OS Independent`, and CI runs the suite on Linux, macOS and Windows. It had only ever been tested on Linux while claiming every platform. The owner-only modes on the two credential files and the config directory are POSIX mode bits and do nothing on Windows, which governs access by inherited ACLs instead.
+- The package declares `Operating System :: OS Independent`, and CI runs the suite on Linux, macOS and Windows. It had only ever been tested on Linux while declaring nothing about platform support. The owner-only modes on the two credential files and the config directory are POSIX mode bits and do nothing on Windows, which governs access by inherited ACLs instead.
 
 ## [0.3.2] - 2026-08-09
 

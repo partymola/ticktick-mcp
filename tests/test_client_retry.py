@@ -560,7 +560,7 @@ class TestTheAugmentationActuallyInstalls:
 
 
 class TestTheCredentialFilesAreOwnerOnly:
-    """Three claims that survived mutation until these existed."""
+    """Claims that survived mutation until these existed."""
 
     @skip_non_posix
     def test_an_existing_loose_token_is_tightened_on_rewrite(self, tmp_path):
@@ -651,10 +651,10 @@ class TestTheCredentialFilesAreOwnerOnly:
         assert cache.exists(), "a transient failure discarded a valid OAuth cache"
         assert "still-good" in cache.read_text()
 
-    def test_the_config_directory_is_created_owner_only(self, tmp_path, monkeypatch):
+    def _load_real_config(self, tmp_path, monkeypatch):
         """conftest replaces ticktick_mcp.config with a stub before any import.
 
-        The real module is loaded from source here, so this exercises the
+        The real module is loaded from source here, so callers exercise the
         mkdir that actually runs rather than the stub's absence of one.
         """
         import importlib.util
@@ -667,10 +667,17 @@ class TestTheCredentialFilesAreOwnerOnly:
         spec = importlib.util.spec_from_file_location("_real_ticktick_config", source)
         real_config = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(real_config)
+        return real_config, target
 
+    def test_the_config_directory_is_created_at_the_configured_path(self, tmp_path, monkeypatch):
+        # Deliberately its own test rather than a conditional inside the mode
+        # one: a skip written as an `if` reports PASSED on Windows with
+        # nothing about the directory checked at all.
+        real_config, target = self._load_real_config(tmp_path, monkeypatch)
         assert real_config.dotenv_dir_path == target
-        # Only the mode is POSIX-only; that the directory is created at all,
-        # nested and at the configured path, holds anywhere.
         assert target.is_dir()
-        if sys.platform != "win32":
-            assert oct(target.stat().st_mode & 0o777) == "0o700"
+
+    @skip_non_posix
+    def test_the_config_directory_is_created_owner_only(self, tmp_path, monkeypatch):
+        _, target = self._load_real_config(tmp_path, monkeypatch)
+        assert oct(target.stat().st_mode & 0o777) == "0o700"

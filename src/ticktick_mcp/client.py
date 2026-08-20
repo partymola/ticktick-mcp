@@ -128,7 +128,7 @@ def _read_v2_token() -> Optional[str]:
 
 
 def _write_v2_token(token: Optional[str]) -> None:
-    """Persist the v2 session token with 0600 perms; best-effort, no raise.
+    """Persist the v2 session token, owner-only on POSIX; best-effort, no raise.
 
     Only genuine string tokens are written -- this keeps a mocked client's
     non-string ``access_token`` from being serialised in tests.
@@ -137,9 +137,10 @@ def _write_v2_token(token: Optional[str]) -> None:
         return
     path = _v2_token_path()
     try:
-        # 0600 at creation, not chmodded after: a write-then-chmod leaves the
-        # token in a world-readable file for the duration of every refresh,
-        # and leaves it there permanently if the chmod fails.
+        # The mode rides on the create rather than a chmod after the write: a
+        # write-then-chmod leaves the token world-readable for the length of
+        # every refresh. os.open's mode does not apply to a file that already
+        # exists, which is the case the fchmod below covers, before the write.
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as handle:
             try:
@@ -152,7 +153,7 @@ def _write_v2_token(token: Optional[str]) -> None:
 
 
 def _tighten(path) -> None:
-    """Narrow a credential file to owner-only; best-effort, no raise."""
+    """Narrow a credential file to owner-only (POSIX); best-effort, no raise."""
     try:
         os.chmod(path, 0o600)
     except OSError:

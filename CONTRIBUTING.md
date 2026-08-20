@@ -19,6 +19,8 @@ uv venv --python 3.13 .venv
 uv pip install -e ".[dev]"
 ```
 
+Every command below names the interpreter the POSIX way; on Windows it is `.venv\Scripts\python`.
+
 ### Install the pre-commit hook
 
 The repo ships with `scripts/check-no-data.sh`, which blocks commits that contain databases, tokens, or other secrets:
@@ -32,7 +34,7 @@ Please install it before your first commit.
 ### Run the test suite
 
 ```bash
-.venv/bin/python -m pytest tests/ -v      # .venv\Scripts\python on Windows
+.venv/bin/python -m pytest tests/ -v
 ```
 
 CI runs this on Linux, macOS and Windows. Tests are fully offline - no real API calls, no real tokens. Fixtures use mocked clients.

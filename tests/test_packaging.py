@@ -11,6 +11,7 @@ ENTRYPOINT that scrubbed it would pass here and fail in reality.
 """
 
 import json
+import posixpath
 import re
 import unittest
 from pathlib import Path, PurePosixPath
@@ -62,13 +63,14 @@ def _dockerfile_env(text=None):
 
 
 def _under(path, directory):
-    """PurePosixPath rather than os.path: these are paths inside a Linux image
-    but the comparison runs on whatever host the suite is on, and the native
-    flavour on Windows rewrites them with backslashes so nothing contains
-    anything."""
-    path = PurePosixPath(path)
-    directory = PurePosixPath(directory)
-    return path == directory or directory in path.parents
+    """posixpath rather than os.path: these are paths inside a Linux image but
+    the comparison runs on whatever host the suite is on, and ntpath.normpath
+    rewrites them with backslash separators, so nothing contains anything.
+    Normalising also collapses `..`, so a path that climbs back out of the
+    directory is not under it."""
+    path = posixpath.normpath(path)
+    directory = posixpath.normpath(directory)
+    return path == directory or path.startswith(directory.rstrip("/") + "/")
 
 
 def _readme_code_lines():
@@ -137,9 +139,9 @@ class TestTheContainerKeepsItsTokensOnAVolume(unittest.TestCase):
         self.assertTrue(spec.get("isRequired"))
         # PurePosixPath, not os.path: the placeholder is POSIX-shaped, and since
         # 3.13 ntpath.isabs calls a single leading slash relative, so this read
-        # as a missing placeholder on a Windows host.
+        # as a non-absolute placeholder on a Windows host.
         self.assertTrue(
-            PurePosixPath(spec.get("placeholder", ".")).is_absolute(),
+            PurePosixPath(spec.get("placeholder", "")).is_absolute(),
             "placeholder must be absolute",
         )
 

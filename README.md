@@ -36,7 +36,7 @@ cd ticktick-mcp
 uv sync
 ```
 
-This creates a `.venv` and installs from `uv.lock`, giving you the console script at `.venv/bin/ticktick-mcp`.
+This creates a `.venv` and installs from `uv.lock`, giving you the console script at `.venv/bin/ticktick-mcp`, or `.venv\Scripts\ticktick-mcp` on Windows. Every command below names it the POSIX way.
 
 `pip install .` works too. The fork of `ticktick-py` this server needs is pinned as a direct git reference inside `dependencies`, which pip and uv both honour; `uv sync` is recommended because it installs the exact versions in `uv.lock` rather than re-resolving them.
 
@@ -59,14 +59,16 @@ TickTick sign-in needs two things: an OAuth app (client ID + secret) and your ow
    TICKTICK_PASSWORD=your_ticktick_password
    ```
 
-3. This file holds your account password in plain text, and the server does not create it, so tighten it yourself:
+3. This file holds your account password in plain text, and the server does not create it, so tighten it yourself. On POSIX:
 
    ```bash
    chmod 700 ~/.config/ticktick-mcp
    chmod 600 ~/.config/ticktick-mcp/.env
    ```
 
-   The two token files beside it are created owner-only, and a config directory the server creates is too - but one it finds already there is left as it is.
+   Those are POSIX mode bits, and on Windows they do nothing: access there follows the ACLs the file inherits from its parent directory. No Windows equivalent of the two commands is documented here.
+
+   The two token files beside it are created owner-only, and a config directory the server creates is too - but one it finds already there is left as it is. Those are POSIX modes as well, set on Windows too, where they do not narrow who may read what.
 
 **Authorise once, at a terminal, before registering the server:**
 
