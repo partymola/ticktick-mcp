@@ -11,10 +11,9 @@ ENTRYPOINT that scrubbed it would pass here and fail in reality.
 """
 
 import json
-import os
 import re
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCKERFILE = REPO_ROOT / "Dockerfile"
@@ -63,9 +62,13 @@ def _dockerfile_env(text=None):
 
 
 def _under(path, directory):
-    path = os.path.normpath(path)
-    directory = os.path.normpath(directory)
-    return path == directory or path.startswith(directory.rstrip("/") + "/")
+    """PurePosixPath rather than os.path: these are paths inside a Linux image
+    but the comparison runs on whatever host the suite is on, and the native
+    flavour on Windows rewrites them with backslashes so nothing contains
+    anything."""
+    path = PurePosixPath(path)
+    directory = PurePosixPath(directory)
+    return path == directory or directory in path.parents
 
 
 def _readme_code_lines():
@@ -132,7 +135,13 @@ class TestTheContainerKeepsItsTokensOnAVolume(unittest.TestCase):
         self.assertNotIn("default", spec, "no default can work here; prompt instead")
         self.assertNotIn("value", spec)
         self.assertTrue(spec.get("isRequired"))
-        self.assertTrue(os.path.isabs(spec.get("placeholder", "")), "placeholder must be absolute")
+        # PurePosixPath, not os.path: the placeholder is POSIX-shaped, and since
+        # 3.13 ntpath.isabs calls a single leading slash relative, so this read
+        # as a missing placeholder on a Windows host.
+        self.assertTrue(
+            PurePosixPath(spec.get("placeholder", ".")).is_absolute(),
+            "placeholder must be absolute",
+        )
 
     def test_every_substitution_names_a_variable_that_exists(self):
         # An unmatched `{name}` is left as literal text by the client, and

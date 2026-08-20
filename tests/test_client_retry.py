@@ -18,6 +18,12 @@ import pytest
 import ticktick_mcp.client as client_module
 from ticktick_mcp.client import TickTickClientSingleton
 
+# Not `hasattr(os, "fchmod")`: CPython 3.13 added os.fchmod on Windows, so that
+# test no longer selects POSIX while the mode bits behind it are still absent.
+skip_non_posix = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX mode bits; Windows uses ACLs"
+)
+
 
 @pytest.fixture(autouse=True)
 def _reset_singleton():
@@ -261,6 +267,7 @@ class TestV2TokenCache:
             client_module._write_v2_token(MagicMock())
             assert not (tmp_path / client_module._V2_TOKEN_FILENAME).exists()
 
+    @skip_non_posix
     def test_write_sets_0600(self, tmp_path):
         with patch.object(client_module, "dotenv_dir_path", tmp_path):
             client_module._write_v2_token("tok")
@@ -555,6 +562,7 @@ class TestTheAugmentationActuallyInstalls:
 class TestTheCredentialFilesAreOwnerOnly:
     """Three claims that survived mutation until these existed."""
 
+    @skip_non_posix
     def test_an_existing_loose_token_is_tightened_on_rewrite(self, tmp_path):
         with patch.object(client_module, "dotenv_dir_path", tmp_path):
             path = tmp_path / client_module._V2_TOKEN_FILENAME
@@ -563,6 +571,7 @@ class TestTheCredentialFilesAreOwnerOnly:
             client_module._write_v2_token("tok")
             assert oct(path.stat().st_mode & 0o777) == "0o600"
 
+    @skip_non_posix
     def test_the_oauth_cache_is_narrowed_after_construction(self, tmp_path):
         cache = tmp_path / ".token-oauth"
 
@@ -660,4 +669,8 @@ class TestTheCredentialFilesAreOwnerOnly:
         spec.loader.exec_module(real_config)
 
         assert real_config.dotenv_dir_path == target
-        assert oct(target.stat().st_mode & 0o777) == "0o700"
+        # Only the mode is POSIX-only; that the directory is created at all,
+        # nested and at the configured path, holds anywhere.
+        assert target.is_dir()
+        if sys.platform != "win32":
+            assert oct(target.stat().st_mode & 0o777) == "0o700"

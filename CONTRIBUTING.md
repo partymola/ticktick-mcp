@@ -32,10 +32,10 @@ Please install it before your first commit.
 ### Run the test suite
 
 ```bash
-.venv/bin/python -m pytest tests/ -v
+.venv/bin/python -m pytest tests/ -v      # .venv\Scripts\python on Windows
 ```
 
-Tests are fully offline - no real API calls, no real tokens. Fixtures use mocked clients.
+CI runs this on Linux, macOS and Windows. Tests are fully offline - no real API calls, no real tokens. Fixtures use mocked clients.
 
 ### Run lint and formatting checks
 
