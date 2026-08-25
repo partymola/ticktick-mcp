@@ -23,7 +23,7 @@ Unofficial. Not affiliated with TickTick Ltd. Built on [`ticktick-py`](https://g
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.13+ (tested on 3.13 and 3.14, on Linux, macOS and Windows, in CI)
 - [uv](https://docs.astral.sh/uv/) (recommended - see the install note below)
 - A TickTick account
 - A registered TickTick app for OAuth credentials (free - [developer.ticktick.com](https://developer.ticktick.com/manage))
