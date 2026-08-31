@@ -5,7 +5,7 @@ FROM ghcr.io/astral-sh/uv:0.12.5@sha256:e85be844203885286c60ffad8a858d48afb6c5a5
 # Build stage: uv installs from uv.lock, so the image is built from the exact
 # resolved set rather than whatever a fresh resolve would pick today.
 # git is needed because the ticktick-py fork is a git-source dependency.
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS build
+FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS build
 
 COPY --from=uv /uv /bin/uv
 
@@ -20,7 +20,7 @@ COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
 # Runtime stage: no git, just the built virtualenv and source.
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
+FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5
 
 WORKDIR /app
 
