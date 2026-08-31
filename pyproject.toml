@@ -31,7 +31,7 @@ dependencies = [
     "mcp==2.0.0",
     "anyio==4.14.2",
     "python-dotenv==1.2.3",
-    "pydantic==2.13.4",
+    "pydantic==2.13.5",
     # A PEP 508 direct reference, not a bare name: `[tool.uv.sources]` is a uv
     # extension that pip ignores, so a bare name resolved to the unrelated
     # `ticktick-py` on PyPI for anyone installing with pip - silently, and
