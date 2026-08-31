@@ -5,7 +5,14 @@ FROM ghcr.io/astral-sh/uv:0.12.7@sha256:95f2aa1fe59274951cfe9b0cbc7972e879ff1004
 # Build stage: uv installs from uv.lock, so the image is built from the exact
 # resolved set rather than whatever a fresh resolve would pick today.
 # git is needed because the ticktick-py fork is a git-source dependency.
-FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS build
+#
+# The patch tag, not `3.14-slim`, and that is what keeps digest updates coming.
+# Dependabot treats the tag as the version and will not open a pull request for
+# a version one already exists for - and a closed one still counts. The 3 Aug
+# `3.13-slim -> 3.14-slim` pull request was closed here, so every later rebuild
+# of `3.14-slim` collided with it and went unoffered for seven weeks. Both
+# stages must move together, or the build and runtime images diverge.
+FROM python:3.14.7-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS build
 
 COPY --from=uv /uv /bin/uv
 
@@ -19,8 +26,9 @@ COPY src/ ./src/
 
 RUN uv sync --frozen --no-dev
 
-# Runtime stage: no git, just the built virtualenv and source.
-FROM python:3.14-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5
+# Runtime stage: no git, just the built virtualenv and source. Patch tag for
+# the reason given on the build stage, and it must match it.
+FROM python:3.14.7-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5
 
 WORKDIR /app
 
