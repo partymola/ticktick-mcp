@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-09-05
+
+### Packaging
+
+- The published image is rebuilt on the `python:3.14.7-slim` base, so it carries the upstream base updates issued since the pin was last moved. Those had stopped arriving: the pin named a digest of the floating `3.14-slim` tag, and automated updates read that tag as the version, so once a pull request existed for it a rebuild of the same tag was treated as already proposed. The pin now names the patch tag alongside the digest. The image is built with `uv` 0.12.7.
+- `mcp` is pinned to 2.1.1, `pydantic` to 2.13.5 and `python-dotenv` to 1.2.3, each the version the suite runs against. The tool contract is unchanged: every tool keeps its name, description, and input and output schemas.
+
+### Documentation
+
+- The README states which Python versions and platforms are tested.
+
 ## [0.3.3] - 2026-08-21
 
 ### Packaging
@@ -124,7 +135,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/partymola/ticktick-mcp/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/partymola/ticktick-mcp/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/partymola/ticktick-mcp/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/partymola/ticktick-mcp/compare/v0.3.0...v0.3.1
