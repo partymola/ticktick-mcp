@@ -29,7 +29,7 @@ classifiers = [
 # widening a spec.
 dependencies = [
     "mcp==2.1.1",
-    "anyio==4.14.2",
+    "anyio==4.15.0",
     "python-dotenv==1.2.3",
     "pydantic==2.13.5",
     # A PEP 508 direct reference, not a bare name: `[tool.uv.sources]` is a uv
@@ -56,7 +56,7 @@ where = ["src"]
 dev = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
-    "ruff==0.16.5",
+    "ruff==0.16.6",
 ]
 
 [tool.pytest.ini_options]
