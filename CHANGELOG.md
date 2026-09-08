@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-09-09
+
+### Packaging
+
+- The published image is rebuilt on a newer `python:3.14.7-slim` digest, so it carries the upstream base updates issued since the last release. It is built with `uv` 0.12.10.
+- `anyio` is pinned to 4.15.0, the version the suite runs against. The tool contract is unchanged: every tool keeps its name, description, and input and output schemas.
+
 ## [0.3.4] - 2026-09-05
 
 ### Packaging
@@ -135,7 +142,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/partymola/ticktick-mcp/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/partymola/ticktick-mcp/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/partymola/ticktick-mcp/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/partymola/ticktick-mcp/compare/v0.3.1...v0.3.2
