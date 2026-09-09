@@ -576,6 +576,27 @@ class TestGetById:
         parsed = json.loads(result)
         assert parsed["id"] == "x1"
 
+    def test_an_unknown_id_answers_an_empty_object(self, mock_client):
+        """The behavioural half. The docstring promised null while the tool
+        returned {}, so a caller branching on null took the wrong branch."""
+        mock_client.get_by_id = MagicMock(return_value={})
+
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+            return_value=mock_client,
+        ):
+            result = run(ticktick_get_by_id(obj_id="nothing-has-this-id"))
+
+        assert json.loads(result) == {}
+
+    def test_the_docstring_says_so_too(self):
+        """The documented half, which is what a model reads before calling: the
+        docstring IS the wire description, so prose and behaviour are one
+        contract and either can drift from the other."""
+        doc = ticktick_get_by_id.__doc__
+        assert "``{}``" in doc
+        assert "``null``" not in doc
+
     def test_exception_returns_error(self, mock_client):
         mock_client.get_by_id = MagicMock(side_effect=Exception("fail"))
 

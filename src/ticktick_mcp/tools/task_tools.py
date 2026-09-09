@@ -1333,7 +1333,8 @@ async def ticktick_get_by_id(obj_id: str) -> str:
         obj_id (str): The object's full ID.
 
     Returns:
-        JSON object of the matching record, or ``null`` if not found.
+        JSON object of the matching record, or an empty object ``{}`` if
+        nothing has that id. Branch on emptiness.
         On failure: ``{"error": "...", "status": "error"}``.
 
     Freshness:
