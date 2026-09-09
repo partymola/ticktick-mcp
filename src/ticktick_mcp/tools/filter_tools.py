@@ -37,7 +37,7 @@ from ..helpers import (
     require_ticktick_client,
 )
 from ..mcp_instance import mcp
-from ..projects import resolve_project_id
+from ..projects import is_known_project_id, resolve_project_id
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,16 @@ logger = logging.getLogger(__name__)
 
 _COMPLETED_STATUS = 2  # TickTick API: status == 2 means completed
 _VALID_STATUSES = {"uncompleted", "completed"}
+_VALID_PRIORITIES = (0, 1, 3, 5)  # TickTick stores nothing between these
+_DATE_KEYS = (
+    "due_start_date",
+    "due_end_date",
+    "completion_start_date",
+    "completion_end_date",
+)
+_RECOGNISED_KEYS = frozenset(
+    ("status", "project_id", "priority", "tag_label", "tz", "sort_by_priority") + _DATE_KEYS
+)
 
 
 # --- PeriodFilter ---
@@ -331,6 +341,114 @@ class TaskFilterer:
         return matched
 
 
+# --- Criteria validation ---
+
+
+def _reject_unknown_keys(criteria: dict) -> None:
+    unknown = sorted(str(key) for key in criteria if key not in _RECOGNISED_KEYS)
+    if unknown:
+        raise ValueError(
+            f"Unrecognised filter criteria: {', '.join(repr(k) for k in unknown)}. "
+            f"Recognised: {', '.join(sorted(_RECOGNISED_KEYS))}."
+        )
+
+
+def _checked_priority(value: Any) -> Optional[int]:
+    """Return one of TickTick's four priorities, or ``None`` if unset."""
+    if value is None:
+        return None
+    # bool is an int subclass, so True would otherwise pass as Low.
+    if isinstance(value, bool) or not isinstance(value, int) or value not in _VALID_PRIORITIES:
+        raise ValueError(
+            f"Invalid priority {value!r}. TickTick uses "
+            f"{', '.join(str(p) for p in _VALID_PRIORITIES)} (none, low, medium, high)."
+        )
+    return value
+
+
+def _checked_tz(value: Any) -> Optional[ZoneInfo]:
+    """Return the zone named, or refuse a name that does not resolve.
+
+    Trimmed like the text criteria, so a padded name is a zone rather than
+    a refusal.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        # Blank means unset, matching an absent key. `_checked_text` refuses a
+        # blank instead, because there a filter value is what is missing.
+        if not value.strip():
+            return None
+        try:
+            return ZoneInfo(value.strip())
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"Unknown timezone {value!r}. Expected an IANA name, such as 'Europe/London'."
+            ) from exc
+    raise ValueError(
+        f"Invalid tz {value!r}. Expected an IANA timezone name, such as 'Europe/London'."
+    )
+
+
+def _checked_text(criteria: dict, key: str) -> Optional[str]:
+    """Return a non-empty, trimmed string criterion, or ``None`` if unset.
+
+    Trimmed, not merely checked: `tag_label` is matched by exact membership
+    against a task's tags, so a padded value would match nothing and answer
+    with the empty list this whole check exists to prevent.
+    """
+    value = criteria.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"Invalid {key} {value!r}. Expected a non-empty string.")
+    return value.strip()
+
+
+def _checked_sort_flag(criteria: dict) -> bool:
+    value = criteria.get("sort_by_priority", False)
+    # None means "unset" for every other criterion, so it means it here too.
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        # bool("false") is True, so the string form would silently sort.
+        raise ValueError(f"Invalid sort_by_priority {value!r}. Expected true or false.")
+    return value
+
+
+def _reject_unparsed_dates(
+    criteria: dict,
+    due_filter: PeriodFilter,
+    completion_filter: PeriodFilter,
+) -> None:
+    """Refuse a bound that did not parse, and a window that ends before it
+    begins. Both otherwise run as a query that can match nothing."""
+    parsed = {
+        "due_start_date": due_filter.start_date,
+        "due_end_date": due_filter.end_date,
+        "completion_start_date": completion_filter.start_date,
+        "completion_end_date": completion_filter.end_date,
+    }
+    for key in _DATE_KEYS:
+        raw = criteria.get(key)
+        if raw is None or raw == "":
+            continue
+        if parsed[key] is None:
+            raise ValueError(
+                f"Invalid {key} {raw!r}. Expected an ISO date or datetime, such as '2026-09-01'."
+            )
+
+    for label, window in (("due", due_filter), ("completion", completion_filter)):
+        start, end = window.start_date, window.end_date
+        # Compared as dates, not datetimes, because contains() is day-granular:
+        # a window whose times run backwards inside one day still means that day.
+        if start is not None and end is not None and start.date() > end.date():
+            raise ValueError(
+                f"{label}_start_date {criteria[f'{label}_start_date']!r} is after "
+                f"{label}_end_date {criteria[f'{label}_end_date']!r}."
+            )
+
+
 # --- _build_property_filter ---
 
 
@@ -362,18 +480,15 @@ def _build_property_filter(
     if not isinstance(filter_criteria, dict):
         raise ValueError("filter_criteria must be a JSON object or JSON string")
 
+    _reject_unknown_keys(filter_criteria)
+
     status = filter_criteria.get("status", "uncompleted")
-    if status not in _VALID_STATUSES:
+    # isinstance first: set membership on an unhashable value raises TypeError,
+    # which escapes as a bare error the model cannot act on.
+    if not isinstance(status, str) or status not in _VALID_STATUSES:
         raise ValueError(f"Invalid status {status!r}. Must be 'uncompleted' or 'completed'.")
 
-    tz_name = filter_criteria.get("tz")
-    tz_info: Optional[ZoneInfo] = None
-    if isinstance(tz_name, str) and tz_name:
-        try:
-            tz_info = ZoneInfo(tz_name)
-        except ZoneInfoNotFoundError:
-            logger.warning("Unknown timezone in filter_criteria: %s", tz_name)
-            tz_info = None
+    tz_info: Optional[ZoneInfo] = _checked_tz(filter_criteria.get("tz"))
 
     due_filter = PeriodFilter(
         start_date=filter_criteria.get("due_start_date"),
@@ -386,18 +501,66 @@ def _build_property_filter(
         tz=tz_info,
     )
 
-    sort_by_priority = bool(filter_criteria.get("sort_by_priority", False))
+    _reject_unparsed_dates(filter_criteria, due_filter, completion_filter)
 
     property_filter = PropertyFilter(
-        tag_label=filter_criteria.get("tag_label"),
-        project_id=filter_criteria.get("project_id"),
-        priority=filter_criteria.get("priority"),
+        tag_label=_checked_text(filter_criteria, "tag_label"),
+        project_id=_checked_text(filter_criteria, "project_id"),
+        priority=_checked_priority(filter_criteria.get("priority")),
         status=status,
         due_date_filter=due_filter,
         completion_date_filter=completion_filter,
     )
 
-    return property_filter, tz_info, sort_by_priority
+    return property_filter, tz_info, _checked_sort_flag(filter_criteria)
+
+
+def _confirmed_project(client, value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Resolve ``value`` and confirm the account has that project.
+
+    Returns ``(resolved, None)`` or ``(None, error_json)``, the error carrying
+    ``outcome: "project_list_unverifiable"`` when the list could not be read
+    and a plain refusal when it could and holds no such project.
+    """
+    if value is None:
+        return None, None
+
+    resolved = resolve_project_id(client, value)
+    if is_known_project_id(client, resolved):
+        return resolved, None
+
+    # The resolver's own refresh is throttled, so "not known" may just mean
+    # the snapshot is stale.
+    refreshed = ensure_fresh(client, force=True)
+    if refreshed:
+        resolved = resolve_project_id(client, resolved)
+        if is_known_project_id(client, resolved):
+            return resolved, None
+
+    # Only a list that was actually read supports saying a project is absent.
+    # A refresh that failed, or one that left nothing readable behind, is not
+    # evidence about the account, and reporting it as a miss states something
+    # untrue about it. The same predicate guards the protected-task relations.
+    if not refreshed or not isinstance(getattr(client, "state", None), dict):
+        return None, format_response(
+            {
+                "outcome": "project_list_unverifiable",
+                "status": "error",
+                "error": (
+                    "Could not read the project list, so this project reference "
+                    "could not be confirmed. Retry once the connection recovers."
+                ),
+            }
+        )
+
+    return None, format_response(
+        {
+            "status": "error",
+            "error": (
+                f"No project matches {value!r}. List them with ticktick_get_all(search='projects')."
+            ),
+        }
+    )
 
 
 # --- Public MCP tool ---
@@ -424,7 +587,10 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
             every field back via ``ticktick_update_task`` -- compact
             output must never feed an update.
         filter_criteria (dict | str): A criteria object, or a JSON string
-            that decodes to one. Recognised keys:
+            that decodes to one. No value below reaches the query
+            unchecked, and **any key not on this list is an error** rather
+            than something ignored, so a mistyped key fails loudly.
+            Recognised keys:
 
             * ``status``: ``"uncompleted"`` (default) or ``"completed"``.
               When ``"completed"`` you should supply
@@ -433,16 +599,30 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
             * ``project_id`` (str): Limit to tasks in this project.
               Accepts the project's name as well as its ID
               (case-insensitive, trimmed). Two projects sharing a
-              name is an error, not a guess.
-            * ``priority`` (int): 0=None, 1=Low, 3=Medium, 5=High.
-            * ``tag_label`` (str): Tag name (case-sensitive).
+              name is an error, not a guess, and so is a project the
+              account does not have.
+            * ``priority`` (int): 0=None, 1=Low, 3=Medium, 5=High. Must be
+              a JSON integer; the string ``"3"`` and the float ``3.0`` are
+              errors, as is any other value.
+            * ``tag_label`` (str): Tag name (case-sensitive), non-empty.
+              Surrounding whitespace is trimmed.
             * ``due_start_date`` / ``due_end_date`` (str): ISO date or
               datetime strings; only used when ``status='uncompleted'``.
+              A value that cannot be read as a date is an error, so a
+              window is never silently dropped, and a window that ends
+              before it begins is an error too. Bounds apply at day
+              granularity, so any time part is ignored rather than
+              validated.
             * ``completion_start_date`` / ``completion_end_date`` (str):
               ISO date or datetime strings; only used when
-              ``status='completed'``.
-            * ``tz`` (str): Default IANA timezone applied to date filters.
+              ``status='completed'``. Same date rules as above.
+            * ``tz`` (str): Default IANA timezone applied to date filters,
+              e.g. ``"Europe/London"``. A name that does not resolve is an
+              error rather than being ignored, so results are never
+              labelled with a zone that was not applied.
             * ``sort_by_priority`` (bool): Sort by descending priority.
+              Must be a JSON boolean; the strings ``"true"``/``"false"``
+              and ``1``/``0`` are errors.
 
     Returns:
         JSON list of matching task objects (compact by default; see
@@ -451,6 +631,10 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
         returned and a final ``_truncation_note`` element reports how
         many were omitted -- nothing is dropped silently. On invalid
         input or backend failure: ``{"error": "...", "status": "error"}``.
+        One error carries an extra key: ``outcome:
+        "project_list_unverifiable"`` means the project list could not be
+        refreshed to confirm ``project_id``, so retry rather than
+        concluding the project is gone.
 
     Freshness:
         Uncompleted queries read local state, synced from the server at most
@@ -494,9 +678,14 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
     try:
         client = TickTickClientSingleton.get_client()
 
-        property_filter.project_id = resolve_project_id(client, property_filter.project_id)
+        resolved_project, refusal = _confirmed_project(client, property_filter.project_id)
+        if refusal is not None:
+            return refusal
+        property_filter.project_id = resolved_project
 
-        # The completed branch fetches live via get_completed and needs no sync.
+        # The completed branch fetches live via get_completed, so it needs no
+        # sync of its own. Confirming an unknown project above can still force
+        # one, on its way to a refusal.
         if property_filter.status != "completed":
             ensure_fresh(client)
         results = await TaskFilterer().filter(

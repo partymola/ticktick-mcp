@@ -29,8 +29,8 @@ def _resolve_completion_project(project_id: str):
 
     Stricter than the other surfaces because this value is the completion
     database's key: an unresolved one writes a row no later id-keyed read can
-    find and no tool can repair, whereas elsewhere it merely reaches the API
-    and fails there. A failed refresh is reported separately from a genuine
+    find and no tool can repair, whereas elsewhere it is merely passed on. A
+    failed refresh is reported separately from a genuine
     miss, so a caller is never told a project does not exist when the truth is
     that the list could not be checked.
     """
@@ -40,26 +40,31 @@ def _resolve_completion_project(project_id: str):
         if not is_known_project_id(client, resolved):
             # The resolver's own refresh is throttled, so "not known" may just
             # mean the list is stale.
-            if not ensure_fresh(client, force=True):
-                return None, format_response(
-                    {
-                        "outcome": "project_list_unverifiable",
-                        "status": "error",
-                        "error": (
-                            "Could not refresh the project list, so this project "
-                            "reference could not be confirmed. It is the completion "
-                            "database's key, so it is not written on a guess. Retry "
-                            "once the connection recovers."
-                        ),
-                    }
-                )
-            resolved = resolve_project_id(client, resolved)
+            refreshed = ensure_fresh(client, force=True)
+            if refreshed:
+                resolved = resolve_project_id(client, resolved)
             if not is_known_project_id(client, resolved):
+                # Only a list that was actually read supports saying a project
+                # is absent. A refresh that failed, or one that left nothing
+                # readable behind, is not evidence about the account.
+                if not refreshed or not isinstance(getattr(client, "state", None), dict):
+                    return None, format_response(
+                        {
+                            "outcome": "project_list_unverifiable",
+                            "status": "error",
+                            "error": (
+                                "Could not read the project list, so this project "
+                                "reference could not be confirmed. It is the completion "
+                                "database's key, so it is not written on a guess. Retry "
+                                "once the connection recovers."
+                            ),
+                        }
+                    )
                 return None, format_response(
                     {
                         "status": "error",
                         "error": (
-                            f"No project matches {resolved!r}. List them with "
+                            f"No project matches {project_id!r}. List them with "
                             "ticktick_get_all(search='projects')."
                         ),
                     }

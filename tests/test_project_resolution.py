@@ -108,8 +108,8 @@ def test_ambiguous_name_raises_and_never_guesses():
 @pytest.mark.parametrize("unknown", ["999999999999999999999999", "p1", "Nonexistent Project", "42"])
 def test_anything_unresolvable_passes_through_untouched(unknown):
     """Additive only. Local state lags and id formats are the server's
-    business, so a value this cannot resolve must reach the API exactly as it
-    does today - rejecting it would break callers that work now."""
+    business, so a value this cannot resolve must be returned untouched -
+    rejecting it here would break callers that work now."""
     assert _resolve_project_id(_client(), unknown) == unknown
 
 
@@ -127,11 +127,14 @@ def test_resolution_survives_a_project_entry_with_no_usable_id(unusable):
     assert _resolve_project_id(client, "Home Admin") == HOME
 
 
-def test_a_client_whose_state_is_none_resolves_rather_than_raising():
-    """A coalesce is not the same as a default: getattr hands back the None and
-    the lookup after it raises."""
+@pytest.mark.parametrize("unreadable", [None, "junk", []])
+def test_a_state_that_cannot_be_read_resolves_rather_than_raising(unreadable):
+    """A state that is not a dict means nothing to match against, not a crash.
+    A truthy non-dict is the one that bites: it reaches `.get` and raises,
+    which escapes `get_unprocessed_completions` entirely, since that call sits
+    outside any handler."""
     client = MagicMock()
-    client.state = None
+    client.state = unreadable
     client.inbox_id = None
     client.sync.side_effect = lambda *a, **k: {}
     assert _resolve_project_id(client, "Home Admin") == "Home Admin"
@@ -464,9 +467,9 @@ def test_an_id_still_beats_a_name_match_introduced_by_the_sync():
     ids=["get_unprocessed", "mark_processed"],
 )
 def test_completion_tools_refuse_an_unresolved_project(call):
-    """Everywhere else an unresolved value merely reaches the API and fails
-    there. Here it becomes the database key, so the row is written under a name
-    no id-keyed read can find and nothing can repair."""
+    """Elsewhere an unresolved value is merely passed on. Here it becomes the
+    database key, so the row would be written under a name no id-keyed read can
+    find and nothing can repair."""
     client = _client()
     with (
         patch(
@@ -498,6 +501,37 @@ def test_completion_tools_say_unverifiable_not_missing_when_the_refresh_fails(ca
     client = _client(projects=[])  # id not in the stale list
     monkeypatch.setattr("ticktick_mcp.tools.completion_tools.ensure_fresh", lambda *a, **k: False)
     monkeypatch.setattr("ticktick_mcp.projects.ensure_fresh", lambda *a, **k: False)
+    with (
+        patch(
+            "ticktick_mcp.tools.completion_tools.TickTickClientSingleton.get_client",
+            return_value=client,
+        ),
+        patch("ticktick_mcp.tools.completion_tools.init_db"),
+        patch("ticktick_mcp.tools.completion_tools.mark_processed") as marked,
+    ):
+        result = json.loads(asyncio.run(call()))
+    assert result.get("outcome") == "project_list_unverifiable"
+    assert "No project matches" not in json.dumps(result)
+    marked.assert_not_called()
+
+
+@pytest.mark.parametrize("unreadable", [None, "junk", []])
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: ticktick_get_unprocessed_completions(WORK),
+        lambda: ticktick_mark_completion_processed(task_id="t1", project_id=WORK),
+    ],
+    ids=["get_unprocessed", "mark_processed"],
+)
+def test_completion_tools_say_unverifiable_when_the_list_cannot_be_read(call, unreadable):
+    """A refresh that succeeds but leaves nothing readable is not evidence
+    about the account either. Saying the project is absent is a claim these
+    tools cannot back, and this value is the database key, so the bar is the
+    same one that governs the failed refresh above."""
+    client = _client(projects=[])
+    client.state = unreadable
+    client.sync.side_effect = lambda *a, **k: {}
     with (
         patch(
             "ticktick_mcp.tools.completion_tools.TickTickClientSingleton.get_client",

@@ -662,12 +662,15 @@ class TestBuildPropertyFilter:
         assert str(pf.due_date_filter.tz) == "Europe/London"
         assert pf.completion_date_filter.tz is not None
 
-    def test_invalid_tz_string_logs_warning_returns_none(self):
-        """Invalid tz does not raise; tz_info stays None."""
-        pf, tz, _ = _build_property_filter({"tz": "Not/A/Real/Zone"})
-        assert tz is None
-        assert pf.due_date_filter.tz is None
-        assert pf.completion_date_filter.tz is None
+    def test_invalid_tz_string_is_refused(self):
+        """A zone that does not exist is refused rather than dropped.
+
+        Dropping it returned real rows under a timezone that was never
+        applied, which reads as a correct answer to the question asked.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            _build_property_filter({"tz": "Not/A/Real/Zone"})
+        assert "Not/A/Real/Zone" in str(exc_info.value)
 
     def test_due_dates_built_into_period_filter(self):
         pf, _, _ = _build_property_filter(

@@ -8,21 +8,38 @@ which is the import to stop repeating rather than to copy.
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Optional
 
 from .freshness import ensure_fresh
 from .helpers import ToolLogicError
 
 
-def _project_entries(client) -> list:
-    """The project dicts in local state.
+def _fold(name: str) -> str:
+    """Trim, NFC-normalise, then casefold.
 
-    A falsy ``state`` is coalesced rather than defaulted: a client carrying it
-    as None satisfies ``getattr(client, "state", {})``, which then hands the
-    None to the lookup after it. Entries may still lack ``id`` or ``name``,
-    which is why both callers re-check.
+    Normalisation is not cosmetic here: an accented name stored composed and
+    typed decomposed differs by code point, and casefold does not reconcile
+    the two. Without it such a name resolves to nothing, which callers that
+    confirm the result report as "no project matches" and so as a claim about
+    the account that is not true.
     """
-    state = getattr(client, "state", None) or {}
+    return unicodedata.normalize("NFC", name.strip()).casefold()
+
+
+def _project_entries(client) -> list:
+    """The project dicts in local state, or none if it cannot be read.
+
+    Anything that is not a dict is treated as nothing to match against, which
+    covers a client carrying ``state`` as ``None`` and one carrying a truthy
+    non-dict that would otherwise reach ``.get`` and raise. Entries may still
+    lack ``id`` or ``name``, which is why both callers re-check.
+    """
+    state = getattr(client, "state", None)
+    if not isinstance(state, dict):
+        # A truthy non-dict reaches .get() and raises, which escapes the tools
+        # as an unexplained failure rather than as "nothing to match against".
+        return []
     return [p for p in (state.get("projects") or []) if isinstance(p, dict)]
 
 
@@ -44,15 +61,18 @@ def is_known_project_id(client, value: Optional[str]) -> bool:
 def resolve_project_id(client, value: Optional[str]) -> Optional[str]:
     """Accept a project name where an id is expected, and return the id.
 
-    Purely additive: an id, or anything this cannot resolve, is returned
-    untouched and reaches the API exactly as it does today. Local state lags,
-    id formats are the server's business, and a resolver that rejected what it
-    did not recognise would break callers that work now.
+    An id, or anything this cannot resolve, is returned untouched. Local state
+    lags, id formats are the server's business, and a resolver that rejected
+    what it did not recognise would break callers that work now. What becomes
+    of an unresolved value is the caller's business: some tools fail in
+    ``ticktick-py``'s own local lookup, some send it to the API, and some
+    refuse it before either.
 
-    The single new failure is ambiguity. Two projects sharing a name raise
-    rather than resolve, because picking either files the task somewhere the
-    caller will not think to look, and sync order is not a tie-break anyone
-    chose.
+    The one failure is ambiguity. Two projects sharing a name raise rather
+    than resolve, because picking either files the task somewhere the caller
+    will not think to look, and sync order is not a tie-break anyone chose.
+    Names that differ only by Unicode normal form share a name for this
+    purpose, so they raise too.
     """
     if not isinstance(value, str) or not value.strip():
         return value
@@ -70,7 +90,7 @@ def resolve_project_id(client, value: Optional[str]) -> Optional[str]:
 
     projects = _project_entries(client)
     inbox_id = getattr(client, "inbox_id", None)
-    folded = wanted.casefold()
+    folded = _fold(wanted)
     matches = [
         p["id"]
         for p in projects
@@ -78,7 +98,7 @@ def resolve_project_id(client, value: Optional[str]) -> Optional[str]:
         # count as a match - and must not raise KeyError on the way past.
         if isinstance(p.get("id"), str)
         and isinstance(p.get("name"), str)
-        and p["name"].strip().casefold() == folded
+        and _fold(p["name"]) == folded
     ]
     # state["projects"] is projectProfiles and excludes the inbox, so this
     # cannot double-match a user project that is also called "Inbox".

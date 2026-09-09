@@ -176,11 +176,13 @@ Every tool that takes a project ID also takes the project's **name** - `ticktick
 ticktick_create_task(title="Renew insurance", project_id="Home Admin")
 ```
 
-Names match case-insensitively, ignoring surrounding whitespace, and `"Inbox"` resolves to your inbox. IDs keep working unchanged and always win, so nothing that works today changes.
+Names match case-insensitively, ignoring surrounding whitespace, and `"Inbox"` resolves to your inbox. IDs keep working unchanged and always win.
 
-The one new error is ambiguity: if two projects share a name, the call fails and names both IDs rather than picking one, since guessing would file the task somewhere you would not think to look. Anything else the server cannot resolve is passed to the API untouched, exactly as before.
+If two projects share a name, the call fails and names both IDs rather than picking one, since guessing would file the task somewhere you would not think to look.
 
-The two completion-tracking tools are the exception: they refuse a project reference they cannot confirm rather than passing it on, because that value is the key their local database is written under. An unresolvable one would write a row no later lookup by ID can find. If the project list could not be refreshed to check, they say so (`outcome: "project_list_unverifiable"`) instead of claiming the project does not exist.
+Three tools confirm the reference before using it rather than passing on one they cannot place. The two completion-tracking tools do it because that value is the key their local database is written under, and an unresolvable one would write a row no later lookup by ID can find. `ticktick_filter_tasks` does it because it filters locally, so an unknown project would otherwise come back as an empty list, which reads as "no tasks match" rather than "no such project". All three separate the two failures: if the project list could not be refreshed to check, they say so (`outcome: "project_list_unverifiable"`) instead of claiming the project does not exist.
+
+In the remaining tools an unrecognised value is passed on unchanged. `ticktick_get_tasks_from_project` and `ticktick_move_task` then fail in the client library's own local lookup, before any request is sent; `ticktick_create_task`, `ticktick_update_task` and `ticktick_delete_tasks` send it to TickTick if they use it at all.
 
 ## Listing tasks: compact by default
 
