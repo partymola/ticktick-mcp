@@ -5,7 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-09-09
+## [0.4.1] - 2026-09-09
+
+### Fixed
+
+- A project reference is confirmed the same way whichever tool you call. The completion-tracking tools and `ticktick_filter_tasks` had each grown their own copy of that check, and the copies had drifted: on a sync that populated the project list and then failed partway, one of them would confirm a project against a list it had never finished reading. Both now share one implementation, and neither reports a project as missing on the strength of a list it could not read.
+- `ticktick_get_by_id` documents the empty object it returns for an unknown id. It said `null`, so a caller testing for `null` took the wrong branch on every id the account does not have.
 
 ### Changed
 
@@ -162,7 +167,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/partymola/ticktick-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/partymola/ticktick-mcp/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/partymola/ticktick-mcp/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/partymola/ticktick-mcp/compare/v0.3.3...v0.3.4
