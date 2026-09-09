@@ -37,7 +37,7 @@ from ..helpers import (
     require_ticktick_client,
 )
 from ..mcp_instance import mcp
-from ..projects import is_known_project_id, resolve_project_id
+from ..projects import PROJECT_UNVERIFIABLE, confirm_project_id
 
 logger = logging.getLogger(__name__)
 
@@ -525,23 +525,11 @@ def _confirmed_project(client, value: Optional[str]) -> tuple[Optional[str], Opt
     if value is None:
         return None, None
 
-    resolved = resolve_project_id(client, value)
-    if is_known_project_id(client, resolved):
+    resolved, verdict = confirm_project_id(client, value)
+    if verdict is None:
         return resolved, None
 
-    # The resolver's own refresh is throttled, so "not known" may just mean
-    # the snapshot is stale.
-    refreshed = ensure_fresh(client, force=True)
-    if refreshed:
-        resolved = resolve_project_id(client, resolved)
-        if is_known_project_id(client, resolved):
-            return resolved, None
-
-    # Only a list that was actually read supports saying a project is absent.
-    # A refresh that failed, or one that left nothing readable behind, is not
-    # evidence about the account, and reporting it as a miss states something
-    # untrue about it. The same predicate guards the protected-task relations.
-    if not refreshed or not isinstance(getattr(client, "state", None), dict):
+    if verdict == PROJECT_UNVERIFIABLE:
         return None, format_response(
             {
                 "outcome": "project_list_unverifiable",

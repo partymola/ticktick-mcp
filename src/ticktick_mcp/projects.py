@@ -9,10 +9,15 @@ which is the import to stop repeating rather than to copy.
 from __future__ import annotations
 
 import unicodedata
-from typing import Optional
+from typing import Literal, Optional
 
 from .freshness import ensure_fresh
 from .helpers import ToolLogicError
+
+# Verdicts rather than messages: the confirming tools give different reasons.
+ProjectVerdict = Literal["unverifiable", "missing"]
+PROJECT_UNVERIFIABLE: ProjectVerdict = "unverifiable"
+PROJECT_MISSING: ProjectVerdict = "missing"
 
 
 def _fold(name: str) -> str:
@@ -111,3 +116,42 @@ def resolve_project_id(client, value: Optional[str]) -> Optional[str]:
             f"({', '.join(sorted(matches))}). Pass the id of the one you mean."
         )
     return matches[0] if matches else value
+
+
+def confirm_project_id(
+    client, value: Optional[str]
+) -> tuple[Optional[str], Optional[ProjectVerdict]]:
+    """Resolve ``value`` and say whether the account really has that project.
+
+    Returns ``(resolved_id, None)`` when it does, ``(None,
+    PROJECT_UNVERIFIABLE)`` when the project list could not be read, and
+    ``(None, PROJECT_MISSING)`` when it could and holds no such project. A
+    caller must treat any verdict it does not recognise as a refusal: returning
+    success on one writes an unresolved value onward, which for the completion
+    tools is a database key nothing can repair.
+
+    Most tools do not need this: they pass an unresolved value on and it fails
+    downstream. The two that do are the ones where nothing downstream would
+    reject it, so it would otherwise read as a real answer.
+
+    ``ToolLogicError`` from either resolve propagates to the caller, because a
+    name can become ambiguous for the first time in the forced refresh.
+    """
+    resolved = resolve_project_id(client, value)
+    if is_known_project_id(client, resolved):
+        return resolved, None
+
+    # The resolver's own refresh is throttled, so "not known" may just mean
+    # the snapshot is stale.
+    refreshed = ensure_fresh(client, force=True)
+    if refreshed:
+        resolved = resolve_project_id(client, resolved)
+        if is_known_project_id(client, resolved):
+            return resolved, None
+
+    # Only a list that was actually read supports saying a project is absent.
+    # A refresh that failed, or one that left nothing readable behind, is not
+    # evidence about the account.
+    if not refreshed or not isinstance(getattr(client, "state", None), dict):
+        return None, PROJECT_UNVERIFIABLE
+    return None, PROJECT_MISSING

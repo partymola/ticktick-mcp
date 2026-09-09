@@ -15,10 +15,9 @@ from tzlocal import get_localzone
 
 from ..client import TickTickClientSingleton
 from ..completion_db import get_processed_ids_for_project, init_db, is_processed, mark_processed
-from ..freshness import ensure_fresh
 from ..helpers import ToolLogicError, format_response, require_ticktick_client
 from ..mcp_instance import mcp
-from ..projects import is_known_project_id, resolve_project_id
+from ..projects import PROJECT_UNVERIFIABLE, confirm_project_id
 from ..tools.filter_tools import PeriodFilter, PropertyFilter, TaskFilterer
 
 
@@ -36,44 +35,36 @@ def _resolve_completion_project(project_id: str):
     """
     try:
         client = TickTickClientSingleton.get_client()
-        resolved = resolve_project_id(client, project_id)
-        if not is_known_project_id(client, resolved):
-            # The resolver's own refresh is throttled, so "not known" may just
-            # mean the list is stale.
-            refreshed = ensure_fresh(client, force=True)
-            if refreshed:
-                resolved = resolve_project_id(client, resolved)
-            if not is_known_project_id(client, resolved):
-                # Only a list that was actually read supports saying a project
-                # is absent. A refresh that failed, or one that left nothing
-                # readable behind, is not evidence about the account.
-                if not refreshed or not isinstance(getattr(client, "state", None), dict):
-                    return None, format_response(
-                        {
-                            "outcome": "project_list_unverifiable",
-                            "status": "error",
-                            "error": (
-                                "Could not read the project list, so this project "
-                                "reference could not be confirmed. It is the completion "
-                                "database's key, so it is not written on a guess. Retry "
-                                "once the connection recovers."
-                            ),
-                        }
-                    )
-                return None, format_response(
-                    {
-                        "status": "error",
-                        "error": (
-                            f"No project matches {project_id!r}. List them with "
-                            "ticktick_get_all(search='projects')."
-                        ),
-                    }
-                )
+        resolved, verdict = confirm_project_id(client, project_id)
     except ToolLogicError as exc:
-        # One handler over both resolves: a name can become ambiguous only
-        # after the forced refresh introduces the second project.
         return None, format_response({"error": str(exc), "status": "error"})
-    return resolved, None
+
+    if verdict == PROJECT_UNVERIFIABLE:
+        return None, format_response(
+            {
+                "outcome": "project_list_unverifiable",
+                "status": "error",
+                "error": (
+                    "Could not read the project list, so this project reference "
+                    "could not be confirmed. It is the completion database's key, "
+                    "so it is not written on a guess. Retry once the connection "
+                    "recovers."
+                ),
+            }
+        )
+    if verdict is None:
+        return resolved, None
+    # Unconditional, matching the filter tool: a verdict neither site
+    # recognises must refuse, not key a completion row on an unresolved value.
+    return None, format_response(
+        {
+            "status": "error",
+            "error": (
+                f"No project matches {project_id!r}. List them with "
+                "ticktick_get_all(search='projects')."
+            ),
+        }
+    )
 
 
 @mcp.tool()

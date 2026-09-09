@@ -545,7 +545,10 @@ class TestTheProjectReference:
                 "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
                 return_value=[],
             ),
-            patch("ticktick_mcp.tools.filter_tools.ensure_fresh", return_value=True) as fresh,
+            # `projects`, not `filter_tools`: the forced refresh lives inside
+            # confirm_project_id. Patching the tool module watches the wrong
+            # name and the assertion below passes over anything.
+            patch("ticktick_mcp.projects.ensure_fresh", return_value=True) as fresh,
         ):
             run(ticktick_filter_tasks({"project_id": "p1"}))
 
@@ -672,3 +675,77 @@ class TestTheRefusalsReachTheCaller:
             run(ticktick_filter_tasks({"priority": 99}))
 
         fetch.assert_not_called()
+
+
+class TestTheConfirmSequenceItself:
+    """Properties of `projects.confirm_project_id` that only a NAME, or only a
+    part-failed refresh, can distinguish."""
+
+    def test_a_refresh_that_populates_then_fails_is_not_treated_as_read(self):
+        """`ticktick-py` writes `state["projects"]` partway through `sync`, so a
+        response missing a later key leaves the list populated and then raises.
+        The two copies this function was merged from disagreed here: one
+        re-checked outside the refresh gate and would have answered success off
+        a list it never confirmed. Refusing is the documented side."""
+        client = _client_with_projects()
+
+        def _populate_then_fail():
+            client.state["projects"] = [_project("p1", "Home")]
+            raise RuntimeError("sync died after writing the project list")
+
+        client.sync = MagicMock(side_effect=_populate_then_fail)
+        freshness._last_sync_monotonic = time.monotonic()
+
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=client,
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                return_value=[],
+            ),
+        ):
+            result = run(ticktick_filter_tasks({"project_id": "p1"}))
+
+        parsed = json.loads(result)
+        assert parsed["outcome"] == "project_list_unverifiable"
+
+    def test_the_re_resolved_value_is_the_one_used(self):
+        """A NAME, not an id. With an id the second `is_known_project_id` flips
+        true off the refreshed snapshot whether or not the re-resolve's return
+        value was kept, so an id can never catch the assignment being dropped.
+
+        The warm throttle below is load-bearing, not tidy-up: without it the
+        resolver's own unforced sync resolves the name on the first pass,
+        `confirm_project_id` returns at its first early exit, and the limb this
+        test exists to reach is never entered. The final assertion checks a
+        forced refresh actually happened, so removing the throttle line fails
+        the test rather than quietly emptying it.
+        """
+        client = _client_with_projects()
+        client.sync = MagicMock(
+            side_effect=lambda: client.state.__setitem__("projects", [_project("p1", "Home")])
+        )
+        freshness._last_sync_monotonic = time.monotonic()
+
+        with (
+            patch(
+                "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+                return_value=client,
+            ),
+            patch(
+                "ticktick_mcp.tools.filter_tools._get_all_tasks_from_ticktick",
+                return_value=[{"id": "t1", "status": 0, "projectId": "p1"}],
+            ),
+            patch("ticktick_mcp.projects.ensure_fresh", wraps=freshness.ensure_fresh) as refreshed,
+        ):
+            result = run(ticktick_filter_tasks({"project_id": "Home"}))
+
+        parsed = json.loads(result)
+        assert isinstance(parsed, list), f"the refresh introduced 'Home': {parsed}"
+        assert [t["id"] for t in parsed] == ["t1"]
+        assert any(
+            call.kwargs.get("force") or (len(call.args) > 1 and call.args[1])
+            for call in refreshed.call_args_list
+        ), "the forced-refresh limb was never reached, so nothing here was tested"

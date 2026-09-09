@@ -499,7 +499,8 @@ def test_completion_tools_say_unverifiable_not_missing_when_the_refresh_fails(ca
     failed. That sends the caller hunting for the wrong problem, and for
     mark_processed the work is purely local anyway."""
     client = _client(projects=[])  # id not in the stale list
-    monkeypatch.setattr("ticktick_mcp.tools.completion_tools.ensure_fresh", lambda *a, **k: False)
+    # Both refreshes live in `projects`: the resolver's throttled one and the
+    # forced one that confirms.
     monkeypatch.setattr("ticktick_mcp.projects.ensure_fresh", lambda *a, **k: False)
     with (
         patch(
@@ -618,3 +619,51 @@ def test_a_name_already_in_state_costs_no_forced_sync():
     ):
         asyncio.run(ticktick_mark_completion_processed(task_id="t1", project_id="Work"))
     client.sync.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "module,call,unreached",
+    [
+        (
+            "completion_tools",
+            lambda: ticktick_get_unprocessed_completions(WORK),
+            "get_processed_ids_for_project",
+        ),
+        (
+            "completion_tools",
+            lambda: ticktick_mark_completion_processed(task_id="t1", project_id=WORK),
+            "mark_processed",
+        ),
+        (
+            "filter_tools",
+            lambda: ticktick_filter_tasks({"project_id": WORK}),
+            "_get_all_tasks_from_ticktick",
+        ),
+    ],
+    ids=["get_unprocessed", "mark_processed", "filter_tasks"],
+)
+def test_a_verdict_neither_site_recognises_refuses_rather_than_succeeding(module, call, unreached):
+    """`confirm_project_id` returns a verdict token, so a third one is one edit
+    away, and EVERY site that reads one must refuse on a value it does not
+    recognise. The two consequences differ and both are bad: the completion
+    tools would key a row on an unresolved value, and the filter would drop the
+    project criterion and answer with tasks from every project."""
+    with (
+        patch(
+            f"ticktick_mcp.tools.{module}.confirm_project_id",
+            return_value=(None, "a-verdict-from-the-future"),
+        ),
+        patch(
+            "ticktick_mcp.tools.completion_tools.TickTickClientSingleton.get_client",
+            return_value=_client(),
+        ),
+        patch(
+            "ticktick_mcp.tools.filter_tools.TickTickClientSingleton.get_client",
+            return_value=_client(),
+        ),
+        patch("ticktick_mcp.tools.completion_tools.init_db"),
+        patch(f"ticktick_mcp.tools.{module}.{unreached}") as never,
+    ):
+        result = json.loads(asyncio.run(call()))
+    assert isinstance(result, dict) and result.get("status") == "error", result
+    never.assert_not_called()
