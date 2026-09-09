@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-09
+
+### Changed
+
+`ticktick_filter_tasks` filters tasks locally, so a criterion it could not use reached nothing that would reject it. It matched no task, and the call came back as an empty list, which reads as "no tasks match" rather than "that value was invalid". Each of the following was accepted before and is now an error naming the value and what the tool takes.
+
+- **Any key that is not a recognised criterion.** This is the broadest change, and the one most likely to affect a caller whose query was otherwise fine: an extra or mistyped key used to be ignored and the rest of the query ran.
+- **`priority` takes a JSON integer only.** The string `"3"` and the float `3.0` were silently coerced and gave correct answers, so this is the one break that affects a caller doing nothing wrong. Send `3`.
+- **`sort_by_priority` must be a JSON boolean.** `"false"` used to sort, because a non-empty string is truthy.
+- **An unparseable date bound, and a window that ends before it begins.** An unreadable bound became no bound, so the window that ran was not the window asked for. Bounds still apply at day granularity, so a time part is ignored rather than validated.
+- **A `tz` that is not a resolvable IANA name.** Leading this one with what it buys: an unknown zone used to be dropped, and the results came back labelled with a timezone that had never been applied. That cannot happen now.
+- **A blank or whitespace-only `tag_label` or `project_id`.**
+- **A `project_id` the account does not have**, where the answer used to be an empty list. When the project list could not be read to check, the error carries `outcome: "project_list_unverifiable"` instead, which means retry rather than that the project is gone. The completion-tracking tools make the same distinction.
+
+### Fixed
+
+- A `status` that is not a string reached the caller as an error naming only the tool, with no message. It now says what was sent and what is accepted.
+- A `tag_label` with surrounding whitespace matched nothing and returned an empty list. It is trimmed, as `tz` and `project_id` now are.
+- A project whose name contains an accented character resolves whichever Unicode normal form it is typed in. Two spellings of one name differ by code point, so a name stored one way and typed the other did not match. Two projects whose names differ only by normal form now count as sharing a name, and so report as ambiguous.
+
 ## [0.3.5] - 2026-09-09
 
 ### Packaging
@@ -142,7 +162,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/partymola/ticktick-mcp/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/partymola/ticktick-mcp/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/partymola/ticktick-mcp/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/partymola/ticktick-mcp/compare/v0.3.2...v0.3.3
