@@ -91,6 +91,14 @@ def mark_processed(
         logging.warning("Task %s already in completion_tracking; skipping.", task_id)
 
 
+def clear_processed(task_id: str) -> None:
+    """Drop the row marking ``task_id`` as processed, if there is one."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM completion_tracking WHERE task_id = ?", (task_id,))
+        conn.commit()
+    logging.debug("Cleared any completion record for task %s.", task_id)
+
+
 def get_processed_ids_for_project(project_id: str) -> set:
     """Return the set of task_ids already processed for a given project."""
     with _connect() as conn:

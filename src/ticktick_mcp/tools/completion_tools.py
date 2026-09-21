@@ -81,6 +81,13 @@ async def ticktick_get_unprocessed_completions(
     completions. After reviewing each returned task, call
     ticktick_mark_completion_processed to record that it has been handled.
 
+    A task completed through ticktick_complete_task is recorded by that tool,
+    so what this returns is what was completed elsewhere, in the TickTick app
+    or on another client, where a note may be waiting to be read. One
+    exception: no recurring completion is recorded, because it files its
+    completed instance under an id the completing call never sees, so that
+    instance appears here whoever completed it.
+
     Args:
         project_id (str): TickTick project ID or name to check. Required.
             Accepts the project's name as well as its ID

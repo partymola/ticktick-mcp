@@ -31,6 +31,13 @@ from tzlocal import get_localzone
 
 from ..client import TickTickClientSingleton
 from ..compact import CONTENT_PREVIEW_CHARS, DETAIL_COMPACT, normalise_detail, render_task_list
+from ..completion_db import (
+    clear_processed,
+    get_processed_ids_for_project,
+    init_db,
+    is_processed,
+    mark_processed,
+)
 from ..freshness import ensure_fresh
 from ..helpers import (
     ToolLogicError,
@@ -425,6 +432,41 @@ def _normalise_reminder(reminder: Any) -> Optional[str]:
     return None
 
 
+def _record_completion(task_id: str, task: dict, completed_time: Optional[str]) -> bool:
+    """Record a completion made here, keyed on the task's own ``projectId``."""
+    try:
+        init_db()
+        mark_processed(
+            task_id=task_id,
+            project_id=task["projectId"],
+            title=task.get("title"),
+            completed_time=completed_time,
+            notes="completed via ticktick_complete_task",
+        )
+        # Read the store back rather than inferring success from the absence of
+        # an exception: mark_processed swallows every IntegrityError as a
+        # duplicate, so a row it never wrote would otherwise report as written.
+        # Asked per project, which is the question the queue asks: a row left
+        # under a project the task has since moved out of suppresses nothing.
+        return task_id in get_processed_ids_for_project(task["projectId"])
+    except Exception as exc:
+        logger.error("Could not record completion of %s: %s", task_id, exc, exc_info=True)
+        return False
+
+
+def _forget_completion(task_id: str) -> bool:
+    """Drop any completion record for ``task_id``, so a later one is news again."""
+    try:
+        init_db()
+        clear_processed(task_id)
+        return not is_processed(task_id)
+    except Exception as exc:
+        logger.error(
+            "Could not clear the completion record for %s: %s", task_id, exc, exc_info=True
+        )
+        return False
+
+
 def _is_recurring(task: dict) -> bool:
     """True if ``task`` carries recurrence metadata.
 
@@ -491,10 +533,12 @@ async def ticktick_create_task(
         items (list[dict], optional): Subtask items.
 
     Returns:
-        JSON object containing the created task. If verification flags
-        an issue, ``_verification_warnings`` is attached. Without
-        ``due_date`` a warning is added because TickTick will not trigger
-        a reminder.
+        JSON object containing the created task. ``_verification_warnings``
+        carries everything worth knowing about what landed: a response that
+        did not match what was sent, a due date that is missing and so will
+        fire no reminder at all or all-day and so no timed one, a title
+        character TickTick parses as a marker, and content longer than the
+        compact preview.
         On failure: ``{"error": "...", "status": "error"}``.
 
     Limitations:
@@ -654,14 +698,20 @@ async def update_task(task_object: TaskObject) -> str:
 
     Returns:
         JSON object containing the updated task.
-        ``_verification_warnings`` is attached if the response did not
-        match what we sent.
+        ``_verification_warnings`` is attached when the response did not
+        match what we sent, and when ``status: 0`` was set but the local
+        completion record could not be cleared. The second one says nothing
+        about whether the update itself landed.
         On failure: ``{"error": "...", "status": "error"}``.
 
     Limitations:
         - Read-only API fields (``creator``, ``etag``, ``createdTime``,
           ``modifiedTime``, ``deleted``, ``kind``, ``isFloating``) are
           stripped before the call.
+        - Setting ``status: 0`` also clears any local record of this task's
+          earlier completion, so a later completion is surfaced by
+          ``ticktick_get_unprocessed_completions`` again. A clear that fails
+          is reported in ``_verification_warnings``.
 
     Agent Usage Guide:
         - To reschedule a task, send a single update with the new
@@ -790,6 +840,18 @@ async def update_task(task_object: TaskObject) -> str:
                 }
             )
 
+        stale_record_warning: list[str] = []
+        if "status" in task_object.model_fields_set and task_object.status == 0:
+            # Before the POST: a clear the update then fails to earn costs one
+            # completion reappearing in the queue, where the other order loses a
+            # note nobody reads.
+            if not _forget_completion(task_object.id):
+                stale_record_warning = [
+                    "the local record of this task's earlier completion could not be "
+                    "cleared, so a later completion may not appear in "
+                    "ticktick_get_unprocessed_completions"
+                ]
+
         merged: dict = {k: v for k, v in existing.items() if k in UPDATABLE_FIELDS}
 
         explicit = task_object.model_dump(mode="json", exclude_unset=True)
@@ -822,6 +884,8 @@ async def update_task(task_object: TaskObject) -> str:
             if applied:
                 result = dict(recheck)
                 result["outcome"] = "updated"
+                if stale_record_warning:
+                    result["_verification_warnings"] = list(stale_record_warning)
                 return format_response(result)
             result = dict(recheck) if isinstance(recheck, dict) and recheck else {}
             result["outcome"] = "no_op"
@@ -830,9 +894,11 @@ async def update_task(task_object: TaskObject) -> str:
                 "did not apply. Re-read with ticktick_get_by_id to confirm the "
                 "current state before retrying."
             )
+            if stale_record_warning:
+                result["_verification_warnings"] = list(stale_record_warning)
             return format_response(result)
 
-        warnings = verify_mutation("update", merged, updated)
+        warnings = list(verify_mutation("update", merged, updated)) + stale_record_warning
         result = dict(updated)
         if warnings:
             result["_verification_warnings"] = warnings
@@ -1049,6 +1115,12 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
 async def ticktick_complete_task(task_id: str) -> str:
     """Mark a task as completed.
 
+    Completing a task here also records it as processed, so it does not come
+    back from ``ticktick_get_unprocessed_completions``. That queue is for
+    completions made elsewhere, where a note may be waiting to be read.
+    There is no need to call ``ticktick_mark_completion_processed``
+    afterwards.
+
     Args:
         task_id (str): The task's full ID.
 
@@ -1056,12 +1128,21 @@ async def ticktick_complete_task(task_id: str) -> str:
         JSON object containing the refetched task (status=2 on success).
         ``_verification_warnings`` is attached if the refetch shows the
         task is still open.
+        ``completion_recorded`` reports whether the local record was
+        written. Present only when a non-recurring task completed; absent
+        wherever nothing was recorded, which is every recurring completion
+        and ``outcome: "uncertain"``. The task is complete either way.
         Missing task: ``{"status": "not_found", "error": "..."}``.
         Other failures: ``{"error": "...", "status": "error"}``.
 
     Limitations:
         - Once completed, the ``content`` field becomes immutable.
           Update content with resolution notes BEFORE calling this tool.
+        - A recurring task's completion is never recorded, whatever the
+          outcome: completing one files the completed instance under an id
+          this tool never sees. That instance reaches the unprocessed queue.
+          Do not mark the series id processed by hand instead; it is not the
+          id the queue is showing.
 
     Example:
         ticktick_complete_task(task_id="60ca9dbc8f08516d9dd56324")
@@ -1110,18 +1191,27 @@ async def ticktick_complete_task(task_id: str) -> str:
             # Task left the active list (completed in place). For both
             # non-recurring tasks and recurring tasks with no live rule this
             # is the normal success signal.
-            return format_response(
-                {
-                    "outcome": "completed",
-                    "_verification_warnings": [
-                        "post-complete verification failed: task could not be re-fetched"
-                    ],
-                }
-            )
+            payload = {
+                "outcome": "completed",
+                "_verification_warnings": [
+                    "post-complete verification failed: task could not be re-fetched"
+                ],
+            }
+            if not recurring:
+                payload["completion_recorded"] = _record_completion(task_id, task_obj, None)
+            return format_response(payload)
 
         result = dict(refetched)
         if refetched.get("status", 0) == 2:
             result["outcome"] = "completed"
+            # Recurrence is the discriminator, not the outcome: a recurring
+            # task files its completed instance under an id this call never
+            # sees, so a row under the id it does have is keyed on the wrong
+            # one whichever branch it arrives through.
+            if not recurring:
+                result["completion_recorded"] = _record_completion(
+                    task_id, task_obj, refetched.get("completedTime")
+                )
         else:
             # Not recurring, yet still open. Something did not take, and
             # calling it "completed" would assert a success we cannot back.

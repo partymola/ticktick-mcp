@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-21
+
+### Changed
+
+- `ticktick_complete_task` records the completion as processed, so it does not come back from `ticktick_get_unprocessed_completions`. That queue exists to surface completions made somewhere else: a task ticked off in the TickTick app, where the note explaining what happened is waiting to be read. A completion made through this server carries no note the caller has not already seen, and it was listed all the same, so each one cost a later session a fetch and a judgement about content it had written itself. The result carries `completion_recorded`, and the task is complete either way, since the record is written after the API call and a local write that fails is logged rather than turned into an error. Following a completion with `ticktick_mark_completion_processed` is no longer needed, and on a task recorded here it is a no-op.
+
+- Reopening a task clears the record of its earlier completion, so completing it again is news. Without that, one completion through this server would keep that task out of the queue for good: reopen it, finish it properly, tick it off in the app with a note, and the note would never be surfaced. `ticktick_update_task` clears the record whenever the caller sets `status: 0`, and a clear that fails is logged rather than failing the update. A recurring reopen that the tool already refuses as having no effect clears nothing.
+
+  **A recurring task is the exception, whatever the outcome.** Completing one files the completed instance under an id the completing call never sees, so that instance still appears in the queue. Nothing is recorded for it, and `completion_recorded` is absent rather than false. Do not mark the series id processed by hand instead: it is not the id the queue is showing, so the row would clear nothing.
+
 ## [0.4.1] - 2026-09-09
 
 ### Fixed
@@ -167,7 +177,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/partymola/ticktick-mcp/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/partymola/ticktick-mcp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/partymola/ticktick-mcp/compare/v0.3.5...v0.4.0
 [0.3.5]: https://github.com/partymola/ticktick-mcp/compare/v0.3.4...v0.3.5

@@ -60,6 +60,26 @@ import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def isolated_db(tmp_path):
+    """Point the completion database at a temp directory for every test.
+
+    Autouse and global rather than local to the completion-tracking tests:
+    completing a task records the completion, so any test that completes one
+    would otherwise write to the configured directory, and the tool swallows a
+    write failure by design, so it would pass either way.
+    """
+    import ticktick_mcp.completion_db as db_module
+
+    original = db_module._DB_PATH
+    db_module._DB_PATH = tmp_path / "completion_tracking.db"
+    # Created empty rather than absent, so a test asserting that nothing was
+    # recorded reads an empty table instead of failing on a missing one.
+    db_module.init_db()
+    yield db_module._DB_PATH
+    db_module._DB_PATH = original
+
+
+@pytest.fixture(autouse=True)
 def _reset_freshness_state():
     """Clear the module-level sync throttle before every test.
 

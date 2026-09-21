@@ -19,7 +19,7 @@ Unofficial. Not affiliated with TickTick Ltd. Built on [`ticktick-py`](https://g
 - **Read-after-write verification** - create/update re-read the task and surface `_verification_warnings` when the server echo doesn't match
 - **Compact listing** - list tools return a trimmed view by default so large projects stay under the MCP result-size cap (see below)
 - **Fresh reads** - read tools re-sync server state on demand, so edits made from the TickTick app on other devices show up without a restart
-- **Completion tracking** - mark completed tasks as processed so an agent reviews each one exactly once
+- **Completion tracking** - mark completed tasks as processed so an agent reviews each one exactly once, and completions made through this server record themselves
 
 ## Requirements
 
@@ -153,9 +153,9 @@ ticktick-mcp --version             Print the installed package version
 
 | Tool | Description |
 |------|-------------|
-| `ticktick_create_task` | Create a task, preserving date/reminder/priority/timezone fields; warns if no due date is set (no reminder would fire) |
+| `ticktick_create_task` | Create a task, preserving date/reminder/priority/timezone fields; attaches `_verification_warnings` for anything worth knowing about what landed |
 | `ticktick_update_task` | Update a task by overlaying only the fields you set onto the current server object (omitted fields are never wiped) |
-| `ticktick_complete_task` | Mark a task complete and re-verify; distinguishes a recurring task rolling forward from a normal completion |
+| `ticktick_complete_task` | Mark a task complete and re-verify; distinguishes a recurring task rolling forward from a normal completion, and records the completion as processed |
 | `ticktick_delete_tasks` | Delete one or more tasks by ID |
 | `ticktick_move_task` | Move a task into a different project |
 | `ticktick_make_subtask` | Nest one task as a subtask of another in the same project |
@@ -164,7 +164,7 @@ ticktick-mcp --version             Print the installed package version
 | `ticktick_get_by_id` | Look up any task, project, or tag by its full ID |
 | `ticktick_get_all` | Dump all projects or all tags from local state |
 | `ticktick_sync` | Force an immediate refresh of local state from the server |
-| `ticktick_get_unprocessed_completions` | List recently completed tasks in a project not yet marked processed |
+| `ticktick_get_unprocessed_completions` | List recently completed tasks in a project not yet marked processed; in practice, the ones completed outside this server |
 | `ticktick_mark_completion_processed` | Record that a completed task has been reviewed, excluding it from future checks |
 | `ticktick_convert_datetime_to_ticktick_format` | Convert an ISO 8601 datetime + IANA timezone to TickTick's wire format |
 
@@ -197,6 +197,18 @@ If a compact result would still exceed the size budget, the soonest-due tasks ar
 ## Freshness: reads stay current
 
 The TickTick account can be edited from the app on other devices while the server runs. To keep reads from going stale, the read tools re-sync server state on demand, throttled to at most once per window (default 15s, override with `TICKTICK_MCP_SYNC_TTL_SECONDS`). A change made elsewhere becomes visible within that window; call `ticktick_sync` to force an immediate refresh and get the current task/project counts. If a sync fails, the last-known state is served rather than erroring - except in `ticktick_get_all`, which refreshes every call and reports the failure instead, since a full dump is the wrong place to serve a stale answer quietly.
+
+## Completion tracking: what the queue is for
+
+`ticktick_get_unprocessed_completions` lists tasks completed in a project that no agent has recorded handling yet, and `ticktick_mark_completion_processed` records one. The point of the queue is the completion you did not make: a task ticked off in the TickTick app, where the note explaining what happened is waiting to be read.
+
+`ticktick_complete_task` therefore records its own completions, and reports whether that worked as `completion_recorded`. The task is complete either way, because the record is written after the API call and a local write that fails is logged rather than turned into an error. You do not need to call `ticktick_mark_completion_processed` after completing a task through this server; on a task already recorded here it is a no-op.
+
+One case is not covered, by design. Completing a recurring task files the completed instance under a new id, which the completing call never sees, so that instance reaches the queue whoever completed it. Nothing is recorded for a recurring completion in any shape, and `completion_recorded` is absent from the result rather than false. Do not reach for `ticktick_mark_completion_processed` on the series id to compensate: that is not the id the queue is showing, so the row clears nothing.
+
+Reopening a task through `ticktick_update_task` clears the record of its earlier completion, so the next one is surfaced normally: set `status: 0` and the record goes. Otherwise one completion made here would keep that task out of the queue permanently, including a later one you tick off in the app with a note attached. A task you reopen in the app instead keeps its record, so a later completion there does stay out of the queue.
+
+The record lives in `completion_tracking.db` alongside the `.env` and the token caches.
 
 ## Configuration
 

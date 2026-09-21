@@ -14,22 +14,8 @@ def run(coro):
     return asyncio.run(coro)
 
 
-# --- Fixtures ---
-
-
-@pytest.fixture(autouse=True)
-def isolated_db(tmp_path):
-    """
-    Redirect the DB to a temp directory for every test.
-    Resets the module-level _DB_PATH cache between tests.
-    """
-    import ticktick_mcp.completion_db as db_module
-
-    db_path = tmp_path / "completion_tracking.db"
-    original = db_module._DB_PATH
-    db_module._DB_PATH = db_path
-    yield db_path
-    db_module._DB_PATH = original
+# isolated_db is autouse in conftest.py: completing a task writes a row, so
+# every test in the suite needs it.
 
 
 # =============================================================================
