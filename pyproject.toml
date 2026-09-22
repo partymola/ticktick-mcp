@@ -28,7 +28,7 @@ classifiers = [
 # reached installs unannounced and broke them. Bump deliberately, never by
 # widening a spec.
 dependencies = [
-    "mcp==2.1.1",
+    "mcp==2.2.0",
     "anyio==4.15.1",
     "python-dotenv==1.2.3",
     "pydantic==2.13.5",
