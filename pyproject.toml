@@ -29,7 +29,7 @@ classifiers = [
 # widening a spec.
 dependencies = [
     "mcp==2.1.1",
-    "anyio==4.15.0",
+    "anyio==4.15.1",
     "python-dotenv==1.2.3",
     "pydantic==2.13.5",
     # A PEP 508 direct reference, not a bare name: `[tool.uv.sources]` is a uv
