@@ -236,7 +236,7 @@ Credentials (`TICKTICK_CLIENT_ID`, `TICKTICK_CLIENT_SECRET`, `TICKTICK_REDIRECT_
 
 ## Data safety
 
-A pre-commit hook (`scripts/check-no-data.sh`) blocks accidentally committing databases, credentials, and large files - `*.db` and backup variants, everything under `config/` except `.gitkeep` and `*.example*`, and files over 100KB (except `uv.lock`). Install it after cloning:
+A pre-commit hook (`scripts/check-no-data.sh`) blocks accidentally committing `*.db` files and backup variants, everything under `config/` except `.gitkeep`, `*.example` and `*.example.*`, and files over 100KB (except `uv.lock`). It does not read file contents. Install it after cloning:
 
 ```bash
 ln -sf ../../scripts/check-no-data.sh .git/hooks/pre-commit
