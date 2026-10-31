@@ -11,10 +11,8 @@ blobs (``content``, ``desc``, checklist ``items``) and bulky sync metadata
 
 Full content for any single task stays reachable via ``ticktick_get_by_id``.
 
-Compact mode is for browsing/listing ONLY. The TickTick API wipes any field
-omitted from an update call, so the update round-trip must still fetch the
-full object (``ticktick_get_by_id``) and send every field back via
-``ticktick_update_task``. Compact output must never feed an update.
+Compact mode is for browsing/listing ONLY. ``ticktick_update_task`` takes an id
+and the fields to change, and reads the rest of the task itself.
 """
 
 import logging

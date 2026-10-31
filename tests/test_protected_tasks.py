@@ -73,6 +73,13 @@ def test_update_refuses_protected(mock_client, protect):
     mock_client.task.update.assert_not_called()
 
 
+def test_a_reminder_clear_on_a_protected_task_reaches_neither_route(mock_client, protect):
+    result = asyncio.run(update_task(TaskObject(id=PROTECTED, projectId="p1", reminders=[])))
+    assert _refused(result)
+    mock_client.task.update.assert_not_called()
+    mock_client.http_post.assert_not_called()
+
+
 def test_update_refuses_protected_when_passed_a_raw_dict(mock_client, protect):
     """The guard runs before dict->TaskObject normalisation, so it must read
     the id from either shape; otherwise passing a dict bypasses protection."""

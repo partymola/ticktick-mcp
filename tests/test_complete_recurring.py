@@ -98,8 +98,7 @@ class TestCompleteRecurring:
 
         parsed = json.loads(result)
         assert parsed["outcome"] == "completed"
-        # Documented success signal preserved for the left-the-active-list case.
-        assert "_verification_warnings" in parsed
+        assert "_verification_warnings" not in parsed
 
     def test_non_recurring_status_zero_still_warns(self, mock_client):
         """A NON-recurring task left at status 0 keeps the open-status warning."""

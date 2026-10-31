@@ -6,9 +6,9 @@ not handle on its own:
 
 * ``builder()`` silently drops date/reminder/priority/timezone fields in
   some situations -- we re-populate the task dict after calling it.
-* ``update()`` requires the full task object; any field the caller omits
-  is wiped server-side -- we fetch the existing task, then overlay only
-  the fields the caller actually set (``exclude_unset=True``).
+* ``update()`` posts whatever it is given -- we fetch the existing task,
+  then overlay only the fields the caller actually set
+  (``exclude_unset=True``), so the POST carries the other editable fields too.
 * The API echoes a sparse response -- we compare it against what we
   sent (``verify_mutation``) and surface ``_verification_warnings``
   alongside the data.
@@ -74,6 +74,10 @@ UPDATABLE_FIELDS: set[str] = {
     "status",
     "tags",
 }
+
+_V2_OMITTED_FIELDS: frozenset[str] = frozenset(
+    {"etag", "modifiedTime", "createdTime", "creator", "deleted"}
+)
 
 _DAY_NAMES: list[str] = [
     "Monday",
@@ -467,6 +471,49 @@ def _forget_completion(task_id: str) -> bool:
         return False
 
 
+def _clear_reminders(client, explicit: dict, landed: dict) -> tuple[dict, list[str]]:
+    """Remove reminders the open API kept when the caller emptied them.
+
+    Returns ``landed`` as it now stands, and any warning. The open API ignores
+    an empty list, so this uses the v2 batch route, which honours one only with
+    an empty singular ``reminder`` beside it. That route loses the dates from a
+    sparse body and overwrites without a conflict check, so it gets the whole
+    task as just read, or nothing.
+    """
+    if explicit.get("reminders") != []:
+        return landed, []
+    task_id = explicit["id"]
+    try:
+        stored = client.get_by_id(task_id)
+        if not (stored or landed).get("reminders"):
+            return {**landed, "reminders": []}, []
+        # A read not yet showing the caller's own change would undo it.
+        in_step = all(
+            stored.get(field) == explicit[field]
+            for field in explicit.keys() & {"title", "content", "desc", "priority"}
+            if explicit[field] is not None
+        )
+        if stored and in_step:
+            body = {k: v for k, v in stored.items() if k not in _V2_OMITTED_FIELDS}
+            body.update(reminders=[], reminder="")
+            client.http_post(
+                f"{client.BASE_URL}batch/task",
+                json={"add": [], "update": [body], "delete": []},
+                cookies=client.cookies,
+                headers=client.HEADERS,
+            )
+            # The read-back decides: the route answers 200 to a clear that did not take.
+            fresh = client.get_by_id(task_id) if ensure_fresh(client, force=True) else None
+            if fresh and not fresh.get("reminders"):
+                return {**landed, "reminders": []}, []
+    except Exception as exc:
+        logger.error("Could not clear the reminders of %s: %s", task_id, exc, exc_info=True)
+    return landed, [
+        "reminders: sent empty but could not be confirmed as cleared. "
+        "Check the task in the TickTick app."
+    ]
+
+
 def _is_recurring(task: dict) -> bool:
     """True if ``task`` carries recurrence metadata.
 
@@ -686,10 +733,9 @@ async def ticktick_create_task(
 async def update_task(task_object: TaskObject) -> str:
     """Update an existing task without wiping unmodified fields.
 
-    The TickTick API requires the entire editable task on every update;
-    any omitted field is wiped server-side. To prevent that we fetch the
-    current task, then overlay ONLY the fields the caller explicitly
-    set (``exclude_unset=True``).
+    Send only the fields to change. The tool fetches the current task and
+    overlays ONLY the fields the caller explicitly set
+    (``exclude_unset=True``), sending the other editable fields back with them.
 
     Args:
         task_object (TaskObject): Must include ``id``. All other fields
@@ -699,19 +745,26 @@ async def update_task(task_object: TaskObject) -> str:
     Returns:
         JSON object containing the updated task.
         ``_verification_warnings`` is attached when the response did not
-        match what we sent, and when ``status: 0`` was set but the local
-        completion record could not be cleared. The second one says nothing
-        about whether the update itself landed.
+        match what we sent, when a ``reminders: []`` removal could not be
+        confirmed, and when ``status: 0`` was set but the local completion
+        record could not be cleared. That last one says nothing about whether
+        the update itself landed.
         On failure: ``{"error": "...", "status": "error"}``.
 
     Limitations:
         - Read-only API fields (``creator``, ``etag``, ``createdTime``,
           ``modifiedTime``, ``deleted``, ``kind``, ``isFloating``) are
-          stripped before the call.
+          stripped from the main update call.
         - Setting ``status: 0`` also clears any local record of this task's
           earlier completion, so a later completion is surfaced by
           ``ticktick_get_unprocessed_completions`` again. A clear that fails
           is reported in ``_verification_warnings``.
+        - ``reminders: []`` removes whatever reminders the task has at that
+          moment, so do not send it back from an old copy of the task.
+          ``_verification_warnings`` says so if the removal could not be
+          confirmed. ``reminders: null`` leaves them alone. A non-empty list
+          replaces them. Sending ``dueDate`` and ``startDate`` as ``null``
+          removes the date, and its reminders with it.
 
     Agent Usage Guide:
         - To reschedule a task, send a single update with the new
@@ -811,8 +864,8 @@ async def update_task(task_object: TaskObject) -> str:
         # completion, yet the API echoes a normal task that reads as success.
         # Refuse with an explanation when the caller's ONLY substantive intent is
         # status:0 on an already-open recurring task. Any real edit (some field
-        # other than status is set) falls through untouched, so the standard
-        # fetch-full-object-then-resend reschedule workflow is unaffected.
+        # other than status is set) falls through untouched, so a reschedule is
+        # unaffected.
         substantive_fields = (task_object.model_fields_set & UPDATABLE_FIELDS) - {
             "id",
             "projectId",
@@ -882,10 +935,12 @@ async def update_task(task_object: TaskObject) -> str:
                 and all(recheck.get(k) == v for k, v in sent.items())
             )
             if applied:
+                recheck, clear_warning = _clear_reminders(client, explicit, recheck)
                 result = dict(recheck)
                 result["outcome"] = "updated"
-                if stale_record_warning:
-                    result["_verification_warnings"] = list(stale_record_warning)
+                warnings = stale_record_warning + clear_warning
+                if warnings:
+                    result["_verification_warnings"] = warnings
                 return format_response(result)
             result = dict(recheck) if isinstance(recheck, dict) and recheck else {}
             result["outcome"] = "no_op"
@@ -898,7 +953,10 @@ async def update_task(task_object: TaskObject) -> str:
                 result["_verification_warnings"] = list(stale_record_warning)
             return format_response(result)
 
-        warnings = list(verify_mutation("update", merged, updated)) + stale_record_warning
+        updated, clear_warning = _clear_reminders(client, explicit, updated)
+        warnings = (
+            list(verify_mutation("update", merged, updated)) + stale_record_warning + clear_warning
+        )
         result = dict(updated)
         if warnings:
             result["_verification_warnings"] = warnings
@@ -1069,11 +1127,10 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
 
     Limitations:
         - Completed tasks are NOT included.
-        - Compact output is for browsing only. To EDIT a task, fetch the
-          full object with ``ticktick_get_by_id`` first, then send every
-          field back via ``ticktick_update_task`` (the API wipes any
-          field omitted from an update). Get the full content of a single
-          task with ``ticktick_get_by_id``, or pass ``detail="full"``.
+        - Compact output is for browsing only. To edit a task, call
+          ``ticktick_update_task`` with its id and only the fields to change.
+          Get the full content of a single task with
+          ``ticktick_get_by_id``, or pass ``detail="full"``.
 
     Freshness:
         Local state is synced from the server at most once per throttle
@@ -1125,9 +1182,14 @@ async def ticktick_complete_task(task_id: str) -> str:
         task_id (str): The task's full ID.
 
     Returns:
-        JSON object containing the refetched task (status=2 on success).
-        ``_verification_warnings`` is attached if the refetch shows the
-        task is still open.
+        After a completion call, a JSON object carrying ``outcome``.
+        ``completed``: the task is no longer open. It has usually left the
+        active list, so no task object comes back; one that can still be read
+        is returned at status=2.
+        ``completed_recurring``: the next occurrence, at status=0, with
+        ``next_occurrence_id``.
+        ``uncertain``: a non-recurring task is still open, with
+        ``_verification_warnings`` saying so.
         ``completion_recorded`` reports whether the local record was
         written. Present only when a non-recurring task completed; absent
         wherever nothing was recorded, which is every recurring completion
@@ -1191,12 +1253,7 @@ async def ticktick_complete_task(task_id: str) -> str:
             # Task left the active list (completed in place). For both
             # non-recurring tasks and recurring tasks with no live rule this
             # is the normal success signal.
-            payload = {
-                "outcome": "completed",
-                "_verification_warnings": [
-                    "post-complete verification failed: task could not be re-fetched"
-                ],
-            }
+            payload = {"outcome": "completed"}
             if not recurring:
                 payload["completion_recorded"] = _record_completion(task_id, task_obj, None)
             return format_response(payload)

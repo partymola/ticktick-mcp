@@ -13,7 +13,10 @@ def verify_mutation(operation: str, expected: dict, actual: dict) -> list:
     Returns list of mismatch descriptions. Empty list = all verified.
 
     Checks exact value for title/content/priority.
-    Checks presence (non-None) for date/time fields where format may differ.
+    Checks presence for date, recurrence and reminder fields, where format may
+    differ: a value sent must not come back missing, nor as an empty list. An
+    empty value sent asserts nothing, because TickTick leaves an empty reminder
+    list out of its response.
     """
     if not isinstance(actual, dict):
         return [f"API returned non-dict response: {type(actual)}"]
@@ -32,9 +35,9 @@ def verify_mutation(operation: str, expected: dict, actual: dict) -> list:
                 )
 
     for field in PRESENCE_FIELDS:
-        if field in expected and expected[field] is not None:
-            if actual.get(field) is None:
-                mismatches.append(f"{field}: was set but API returned None (data may be lost)")
+        returned = actual.get(field)
+        if expected.get(field) and returned in (None, []):
+            mismatches.append(f"{field}: was set but API returned {returned!r} (data may be lost)")
 
     if mismatches:
         logging.warning(f"Verification failed after {operation}: {'; '.join(mismatches)}")

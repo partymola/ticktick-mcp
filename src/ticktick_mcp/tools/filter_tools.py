@@ -570,10 +570,9 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
             projectId, title, dueDate, startDate, priority, status,
             isAllDay, timeZone, tags plus a ``contentPreview`` (first
             ~200 chars of content) so keyword search still works. Full
-            returns the raw task objects unchanged. To EDIT a task, fetch
-            the full object with ``ticktick_get_by_id`` first, then send
-            every field back via ``ticktick_update_task`` -- compact
-            output must never feed an update.
+            returns the raw task objects unchanged. To edit a task, call
+            ``ticktick_update_task`` with its id and only the fields to
+            change, plus ``projectId`` for a completed task.
         filter_criteria (dict | str): A criteria object, or a JSON string
             that decodes to one. No value below reaches the query
             unchecked, and **any key not on this list is an error** rather

@@ -5,7 +5,7 @@
 [![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![Glama MCP Server](https://glama.ai/mcp/servers/partymola/ticktick-mcp/badges/score.svg)](https://glama.ai/mcp/servers/partymola/ticktick-mcp)
 
-MCP server for TickTick task management. Create, update, complete, move, and filter tasks via the TickTick v2 API, with field-preserving updates, day-of-week date validation, read-after-write verification, and idempotent completion tracking.
+MCP server for TickTick task management. Create, update, complete, move, and filter tasks through TickTick's Open and v2 APIs, with field-preserving updates, day-of-week date validation, read-after-write verification, and idempotent completion tracking.
 
 Designed for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and other [MCP](https://modelcontextprotocol.io/) clients.
 
@@ -14,9 +14,9 @@ Unofficial. Not affiliated with TickTick Ltd. Built on [`ticktick-py`](https://g
 ## Features
 
 - **Full task lifecycle** - create, update, complete, move, subtask, and delete
-- **Field-preserving updates** - `ticktick_update_task` re-fetches the task and overlays only the fields you set, so the API never wipes the ones you omit
+- **Field-preserving updates** - `ticktick_update_task` re-fetches the task and overlays only the fields you set, sending its other editable fields back with them
 - **Day-of-week validation** - any call that sets a date must confirm the weekday, catching off-by-one date mistakes before they reach the server
-- **Read-after-write verification** - create/update re-read the task and surface `_verification_warnings` when the server echo doesn't match
+- **Read-after-write verification** - create/update compare the server's response with what was sent and surface `_verification_warnings` when it doesn't match
 - **Compact listing** - list tools return a trimmed view by default so large projects stay under the MCP result-size cap (see below)
 - **Fresh reads** - read tools re-sync server state on demand, so edits made from the TickTick app on other devices show up without a restart
 - **Completion tracking** - mark completed tasks as processed so an agent reviews each one exactly once, and completions made through this server record themselves
@@ -88,7 +88,7 @@ The server looks for `.env` in this order: the `--dotenv-dir <path>` argument, t
 
 Your TickTick credentials live only in your local `.env` (or the environment) and are sent only to TickTick's own servers - never to the developer or any third party. The server reads and writes only your own account.
 
-This server uses TickTick's unofficial v2 API (via `ticktick-py`) rather than the official Open API. That is a deliberate choice: the official API has no list-completed-tasks endpoint, no tags, and no cross-project task listing - all of which this server relies on. See [docs/why-not-the-official-api.md](https://github.com/partymola/ticktick-mcp/blob/main/docs/why-not-the-official-api.md) for the full rationale, the risk trade-off, and the triggers that would make us reconsider.
+This server relies on TickTick's unofficial v2 API (via `ticktick-py`) rather than only the official Open API. That is a deliberate choice: the official API has no list-completed-tasks endpoint, no tags, and no cross-project task listing - all of which this server relies on. Reads, completed lists, delete, move and subtask go through v2, as does removing a reminder. Create, update and complete use the Open API. See [docs/why-not-the-official-api.md](https://github.com/partymola/ticktick-mcp/blob/main/docs/why-not-the-official-api.md) for the full rationale, the risk trade-off, and the triggers that would make us reconsider.
 
 ## Register with Claude Code
 
@@ -154,7 +154,7 @@ ticktick-mcp --version             Print the installed package version
 | Tool | Description |
 |------|-------------|
 | `ticktick_create_task` | Create a task, preserving date/reminder/priority/timezone fields; attaches `_verification_warnings` for anything worth knowing about what landed |
-| `ticktick_update_task` | Update a task by overlaying only the fields you set onto the current server object (omitted fields are never wiped) |
+| `ticktick_update_task` | Update a task by overlaying only the fields you set onto the current server object |
 | `ticktick_complete_task` | Mark a task complete and re-verify; distinguishes a recurring task rolling forward from a normal completion, and records the completion as processed |
 | `ticktick_delete_tasks` | Delete one or more tasks by ID |
 | `ticktick_move_task` | Move a task into a different project |
@@ -190,7 +190,7 @@ The list-returning tools - `ticktick_get_tasks_from_project` and `ticktick_filte
 
 - Need the full objects? Pass `detail="full"`.
 - Need one task's full content? Use `ticktick_get_by_id`.
-- **Editing a task:** fetch the full object with `ticktick_get_by_id` first, then send every field back via `ticktick_update_task`. The TickTick API wipes any field omitted from an update, so compact output must never feed an update.
+- **Editing a task:** call `ticktick_update_task` with the task's ID and only the fields to change. It reads the rest of the task itself. A completed task also needs its `projectId`.
 
 If a compact result would still exceed the size budget, the soonest-due tasks are returned and a final `_truncation_note` element reports how many were omitted - nothing is dropped silently. Reach the rest with a narrower `ticktick_filter_tasks` query, `detail="full"`, or `ticktick_get_by_id`.
 

@@ -243,8 +243,8 @@ class TestCompleteTask:
         parsed = json.loads(result)
         assert parsed["status"] == "not_found"
 
-    def test_refetch_returns_none_warns(self, mock_client):
-        """If refetch returns None (status verification failed), return warning."""
+    def test_refetch_returns_none_is_a_clean_completion(self, mock_client):
+        """A task gone from the synced list has left the active list."""
         task_obj = {"id": "t1", "projectId": "p1", "status": 0}
         mock_client.get_by_id = MagicMock(side_effect=[task_obj, None])
         mock_client.task.complete = MagicMock(return_value={"some": "api_resp"})
@@ -256,8 +256,8 @@ class TestCompleteTask:
             result = run(ticktick_complete_task(task_id="t1"))
 
         parsed = json.loads(result)
-        assert "_verification_warnings" in parsed
-        assert any("verification failed" in w for w in parsed["_verification_warnings"])
+        assert parsed["outcome"] == "completed"
+        assert "_verification_warnings" not in parsed
 
     def test_refetch_status_still_zero_warns(self, mock_client):
         """If refetched task still has status=0, return warning."""

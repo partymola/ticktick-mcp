@@ -91,14 +91,13 @@ def test_exception_is_not_tagged_as_a_success(mock_client):
     assert result.get("outcome") not in {"completed", "completed_recurring"}
 
 
-# --- the warning channel and the outcome field stay independent --------------
+# --- the ordinary completion carries no warning ------------------------------
 
 
-def test_the_leaves_active_list_note_survives_alongside_the_outcome(mock_client):
-    """The existing note is pinned by tests/test_task_tools_misc.py and stays
-    as-is. It reads as a failure on a path the code calls normal success, but
-    `outcome` now answers that question on its own, so a caller never has to
-    interpret the warning text to know what happened."""
+def test_leaving_the_active_list_carries_no_warning(mock_client):
+    """This is how a real completion comes back: the library syncs after
+    completing, and the synced list holds only open tasks. A warning on this
+    path would fire on every completion and tell the caller nothing to do."""
     result = _run(mock_client, OPEN_TASK, {})
     assert result["outcome"] == "completed"
-    assert result.get("_verification_warnings")
+    assert "_verification_warnings" not in result

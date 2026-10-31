@@ -4,7 +4,7 @@
 
 ## Background
 
-`ticktick-mcp` talks to TickTick through the [`ticktick-py`](https://github.com/partymola/ticktick-py) library, which uses TickTick's **unofficial v2 API** (the same one the web client uses). On connect it performs a username/password login plus a registered OAuth app, and pulls the full account - all tasks, projects, and tags - into local state in one sync. Most of the list/filter/completion tools read from that synced state.
+`ticktick-mcp` talks to TickTick through the [`ticktick-py`](https://github.com/partymola/ticktick-py) library, which uses TickTick's **unofficial v2 API** (the same one the web client uses). On connect it performs a username/password login plus a registered OAuth app, and pulls the full account - all tasks, projects, and tags - into local state in one sync. Most of the list/filter/completion tools read from that synced state. Create, update and complete are the exception, posting to the Open API with that OAuth token.
 
 The alternative is the **official TickTick Open API** (`https://api.ticktick.com/open/v1`, OAuth 2.0, scopes `tasks:read`/`tasks:write`), which needs no `ticktick-py` and never stores the user's password.
 
@@ -25,7 +25,7 @@ The real risk of the unofficial path is that TickTick changes or gates the headl
 
 Mitigations already in place:
 - The `ticktick-py` dependency is a **pinned patched fork** (`uv.lock`), and the container image builds with `uv` so it uses the fork rather than the broken upstream.
-- Login is a **per-process singleton** - it happens once per server start, not per request, so the exposure window is small; the OAuth token is cached at `.token-oauth` and auto-refreshed.
+- Login is a **per-process singleton** - it happens once per server start, not per request, so the exposure window is small; the OAuth token is cached at `.token-oauth`, and `ticktick-mcp auth` renews it when it expires.
 - A failed login is **retried after a cooldown** rather than cached for the process lifetime.
 - The twice-daily task backup exercises the same login, acting as a canary (its failure should be surfaced - see the ops runbook).
 

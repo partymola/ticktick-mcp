@@ -1,5 +1,7 @@
 """Tests for _verify_mutation: read-after-write verification of TickTick API responses."""
 
+import pytest
+
 from ticktick_mcp.verification import verify_mutation as _verify_mutation
 
 
@@ -120,6 +122,42 @@ class TestVerifyMutationPresenceFields:
         expected = {"dueDate": None, "startDate": None}
         actual = {}
         assert _verify_mutation("create", expected, actual) == []
+
+    @pytest.mark.parametrize(
+        "field, empty",
+        [
+            ("reminders", []),
+            ("dueDate", ""),
+            ("startDate", ""),
+            ("timeZone", ""),
+            ("repeat", ""),
+            ("repeatFlag", ""),
+        ],
+    )
+    def test_an_empty_value_sent_is_not_a_loss(self, field, empty):
+        """An update sends the whole task back, empty fields included, and
+        TickTick leaves an empty reminder list out of its response. A value that
+        holds nothing has nothing to lose."""
+        assert _verify_mutation("update", {field: empty}, {}) == []
+
+    def test_an_empty_value_the_api_fills_in_is_not_a_mismatch(self):
+        """TickTick fills in a missing time zone itself, and on a create nobody
+        asked for anything to be cleared."""
+        assert _verify_mutation("update", {"timeZone": ""}, {"timeZone": "Europe/London"}) == []
+        assert _verify_mutation("create", {"reminders": []}, {"reminders": ["TRIGGER:-PT5M"]}) == []
+
+    def test_reminders_that_come_back_empty_warn(self):
+        """An empty list loses the reminder just as surely as a missing field."""
+        result = _verify_mutation("update", {"reminders": ["TRIGGER:-PT30M"]}, {"reminders": []})
+        assert len(result) == 1
+        assert "reminders" in result[0]
+
+    def test_an_empty_string_echo_is_not_read_as_a_loss(self):
+        """No measured update lost a value this way, so nothing needs the check
+        to widen. Pinned so that widening is a decision: a wipe echoed as an empty
+        string goes unreported today."""
+        expected = {"timeZone": "Europe/London"}
+        assert _verify_mutation("update", expected, {"timeZone": ""}) == []
 
 
 class TestVerifyMutationBugReproductions:

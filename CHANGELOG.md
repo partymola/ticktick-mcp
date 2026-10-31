@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `ticktick_update_task` now removes a task's reminders when sent `reminders: []`. **This used to do nothing. A caller sending back an old copy of a task with an empty list could now remove a reminder added since.** The old call looked as if it worked, because TickTick's Open API keeps them and answers with a normal task. The tool now finishes the removal through the v2 API and reads the task back. If it cannot confirm the removal, the result carries a warning. `reminders: null` still leaves them alone.
+
+### Fixed
+
+- `ticktick_update_task` warned that reminders "may be lost" on every update of a task that has none. An update sends the whole task back, and TickTick leaves an empty reminder list out of its response. The check read that as lost data. It now looks only at values that were not empty when sent.
+- `ticktick_complete_task` reported "verification failed" after a normal completion. A completed task leaves the active list, so it cannot be read back. That is the ordinary result, and it now carries no warning. A non-recurring task still open afterwards is still reported, as `outcome: "uncertain"`.
+- A reminder list that comes back empty is now reported as lost. Only a missing one was.
+
+### Documentation
+
+- The docs told callers to fetch a task and send every field back. `ticktick_update_task` does not need that, since it reads the task itself. They now say to pass the ID and the fields to change.
+
 ## [0.5.0] - 2026-09-21
 
 ### Changed
