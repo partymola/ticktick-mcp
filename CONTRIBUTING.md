@@ -1,6 +1,6 @@
 # Contributing to ticktick-mcp
 
-Thanks for your interest in contributing. This is a community MCP server for the TickTick v2 API.
+Thanks for your interest in contributing. This is a community MCP server for TickTick.
 
 ## Getting started
 
