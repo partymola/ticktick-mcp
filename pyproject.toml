@@ -38,7 +38,7 @@ dependencies = [
     # without the fixes this server depends on. Pinned to a commit for the same
     # reason every other dependency is pinned to a version.
     "ticktick-py @ git+https://github.com/partymola/ticktick-py.git@95bac06da06cd88be885078bfb8ab5d3f0610374",
-    "tzlocal==5.4.4",
+    "tzlocal==5.4.5",
 ]
 
 [project.scripts]
