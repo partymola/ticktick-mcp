@@ -12,7 +12,7 @@ FROM ghcr.io/astral-sh/uv:0.13.5@sha256:32a7bb39b496babbd997b0a39a4d66c126bdaf56
 # `3.13-slim -> 3.14-slim` pull request was closed here, so every later rebuild
 # of `3.14-slim` collided with it and went unoffered for seven weeks. Both
 # stages must move together, or the build and runtime images diverge.
-FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170 AS build
+FROM python:3.15.0-slim@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58 AS build
 
 COPY --from=uv /uv /bin/uv
 
@@ -28,7 +28,7 @@ RUN uv sync --frozen --no-dev
 
 # Runtime stage: no git, just the built virtualenv and source. Patch tag for
 # the reason given on the build stage, and it must match it.
-FROM python:3.14.8-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170
+FROM python:3.15.0-slim@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58
 
 WORKDIR /app
 
