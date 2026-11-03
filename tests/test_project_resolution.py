@@ -198,9 +198,9 @@ SURFACES = {
 
 @pytest.mark.parametrize("name", sorted(SURFACES))
 def test_every_project_id_surface_reports_ambiguity(name, monkeypatch):
-    """An unwired surface silently uses the raw name - filter_tasks returned []
-    with no error. Ambiguity is the one input that must visibly fail on all of
-    them, so it is the cheapest probe for whether the wiring exists at all."""
+    """An unwired surface silently uses the raw name. Ambiguity is the one
+    input that must visibly fail on all of them, so it is the cheapest probe
+    for whether the wiring exists at all."""
     client = _wired_client()
     client.state["projects"] = [
         {"id": DUPE_A, "name": "Work"},
@@ -259,9 +259,8 @@ def test_get_tasks_from_project_resolves_after_syncing(monkeypatch):
 
 
 def test_filter_tasks_resolves_after_syncing(monkeypatch):
-    """Resolving first left the raw name in the comparison, so the first call
-    after a project appeared elsewhere returned [] with no error and the second
-    worked - the worst shape of bug, because it looks like a real answer."""
+    """A project created on another device appears only after a sync, so the
+    name must resolve against post-sync state."""
     client = _cold_client()
     task = {"id": "t1", "projectId": WORK, "title": "T", "status": 0}
     with (
@@ -400,9 +399,8 @@ def test_mark_completion_processed_resolves_after_syncing():
     ],
 )
 def test_remaining_surfaces_resolve_after_syncing(name, call, assertion):
-    """The three sites the earlier ordering fix skipped. Each is reachable with
-    a plain name and a cold client, and each would otherwise send the raw
-    string on to the API."""
+    """Each is reachable with a plain name and a cold client, and would
+    otherwise pass the raw string on."""
     client = _cold_client()
     if name == "delete_tasks":
         client.get_by_id.return_value = {}
@@ -417,8 +415,7 @@ def test_remaining_surfaces_resolve_after_syncing(name, call, assertion):
 
 
 def test_resolver_syncs_itself_for_a_name():
-    """No caller has to remember. The requirement was invisible in a signature
-    and five separate call sites got it wrong."""
+    """No caller has to remember: the requirement is invisible in a signature."""
     client = _cold_client()
     assert _resolve_project_id(client, "Work") == WORK
     assert client.sync.called
@@ -562,8 +559,8 @@ def test_ambiguity_appearing_only_after_the_forced_refresh_is_still_an_error(cal
 
     Pre-sync state must hold NO project of this name, and the throttle must be
     warm. Otherwise the first resolve's own sync reveals the duplicate and it
-    is that resolve which raises - a call that was already inside the handler,
-    so the test would pass against the unfixed code and pin nothing."""
+    is that resolve which raises, so the test would pass even if the
+    re-resolve's raise escaped, and pin nothing."""
     from ticktick_mcp.freshness import ensure_fresh as real_ensure_fresh
 
     client = _client(projects=[{"id": WORK, "name": "Work"}])

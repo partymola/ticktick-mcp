@@ -6,10 +6,9 @@ import-time side effects break pytest), so these tests load the real
 module body -- including ``_load_env()`` -- under controlled ``sys.argv`` and
 environment, without disturbing the cached fake other tests rely on.
 
-Covers the regression where a missing dotenv directory/.env file aborted the
-process via ``sys.exit``, preventing the server from booting in environments
+A missing dotenv directory/.env file must not abort the process: environments
 that inject credentials as environment variables (e.g. registry
-tool-introspection).
+tool-introspection) have neither.
 """
 
 import importlib.util

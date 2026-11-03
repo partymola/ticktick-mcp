@@ -61,7 +61,7 @@ class TestUpdateEmptyResponse:
         assert parsed["status"] == 0
 
     def test_normal_dict_response_unchanged(self, mock_client):
-        """A normal (non-empty dict) update response keeps the existing shape."""
+        """A normal (non-empty dict) update response returns the updated task."""
         existing = {"id": "t1", "projectId": "p1", "status": 0, "title": "Task", "priority": 0}
         mock_client.get_by_id = MagicMock(return_value=existing)
         mock_client.task.update = MagicMock(side_effect=lambda d: d)
@@ -122,7 +122,7 @@ class TestEmptyPreReadNeedsProjectId:
 
 class TestNoOpMessageHasNoDeadEndAdvice:
     def test_generic_no_op_message_drops_recurring_retry_parenthetical(self, mock_client):
-        """The generic no_op error must not re-introduce the un-retryable
+        """The generic no_op error must not carry the un-retryable
         'common when reopening a completed recurring occurrence' advice."""
         completed = {"id": "t1", "projectId": "p1", "status": 2, "title": "Task"}
         mock_client.get_by_id = MagicMock(side_effect=[completed, completed])

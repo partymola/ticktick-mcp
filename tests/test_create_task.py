@@ -1,4 +1,4 @@
-"""Tests for create_task fix: fields not handled by builder should be included."""
+"""create_task re-adds fields the builder drops, without overwriting ones it kept."""
 
 import asyncio
 import json
@@ -36,7 +36,7 @@ def mock_client():
 
 class TestCreateTaskBuilderMissingFields:
     def test_dates_included_when_builder_omits_them(self, mock_client):
-        """If builder output lacks startDate/dueDate, the fix should add them."""
+        """If builder output lacks startDate/dueDate, create_task adds them."""
         mock_client.task.builder = MagicMock(
             return_value={
                 "title": "Test task",
@@ -72,7 +72,7 @@ class TestCreateTaskBuilderMissingFields:
         assert created_dict["dueDate"] is not None
 
     def test_reminders_included_when_builder_omits_them(self, mock_client):
-        """If builder output lacks reminders, the fix should add them."""
+        """If builder output lacks reminders, create_task adds them."""
         mock_client.task.builder = MagicMock(
             return_value={
                 "title": "Test task",
@@ -94,7 +94,7 @@ class TestCreateTaskBuilderMissingFields:
         assert created_dict["reminders"] == ["TRIGGER:-PT30M", "TRIGGER:PT0S"]
 
     def test_priority_included_when_builder_omits_it(self, mock_client):
-        """If builder output lacks priority, the fix should add it."""
+        """If builder output lacks priority, create_task adds it."""
         mock_client.task.builder = MagicMock(
             return_value={
                 "title": "Test task",
@@ -116,7 +116,7 @@ class TestCreateTaskBuilderMissingFields:
         assert created_dict["priority"] == 5
 
     def test_timezone_included_when_builder_omits_it(self, mock_client):
-        """If builder output lacks timeZone, the fix should add it."""
+        """If builder output lacks timeZone, create_task adds it."""
         mock_client.task.builder = MagicMock(
             return_value={
                 "title": "Test task",
@@ -167,7 +167,7 @@ class TestCreateTaskBuilderMissingFields:
 
 class TestCreateTaskBuilderFieldsPreserved:
     def test_builder_dates_not_overwritten(self, mock_client):
-        """If builder already includes dates, the fix should not overwrite them."""
+        """If builder already includes dates, create_task does not overwrite them."""
         builder_start = "2024-08-01T09:00:00+0000"
         builder_due = "2024-08-01T17:00:00+0000"
         mock_client.task.builder = MagicMock(
@@ -202,7 +202,7 @@ class TestCreateTaskBuilderFieldsPreserved:
         assert created_dict["dueDate"] == builder_due
 
     def test_builder_reminders_not_overwritten(self, mock_client):
-        """If builder already includes reminders, the fix should not overwrite them."""
+        """If builder already includes reminders, create_task does not overwrite them."""
         builder_reminders = ["TRIGGER:-PT15M"]
         mock_client.task.builder = MagicMock(
             return_value={
@@ -226,7 +226,7 @@ class TestCreateTaskBuilderFieldsPreserved:
         assert created_dict["reminders"] == builder_reminders
 
     def test_builder_priority_not_overwritten(self, mock_client):
-        """If builder already includes priority, the fix should not overwrite it."""
+        """If builder already includes priority, create_task does not overwrite it."""
         mock_client.task.builder = MagicMock(
             return_value={
                 "title": "Test task",
@@ -249,7 +249,7 @@ class TestCreateTaskBuilderFieldsPreserved:
         assert created_dict["priority"] == 3
 
     def test_builder_timezone_not_overwritten(self, mock_client):
-        """If builder already includes timeZone, the fix should not overwrite it."""
+        """If builder already includes timeZone, create_task does not overwrite it."""
         mock_client.task.builder = MagicMock(
             return_value={
                 "title": "Test task",

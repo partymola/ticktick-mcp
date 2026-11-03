@@ -2,8 +2,7 @@
 
 Some tasks must never be mutated by an agent. TICKTICK_MCP_PROTECTED_TASK_IDS
 names them; every mutating tool refuses before issuing any network call, while
-reads are untouched. Unset means no protection, so the default behaviour of the
-server is unchanged.
+reads are untouched. Unset means no protection.
 """
 
 import asyncio

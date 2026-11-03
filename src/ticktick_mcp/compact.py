@@ -107,8 +107,8 @@ def render_task_list(
 ) -> str:
     """Serialise a task list for an MCP list tool.
 
-    ``detail="full"`` returns the raw objects unchanged (byte-for-byte what
-    the tools returned before compact mode existed). ``detail="compact"``
+    ``detail="full"`` returns the raw objects unchanged, byte-for-byte what
+    ``format_response`` gives for them. ``detail="compact"``
     (the default) drops heavy fields and, if the compact payload would still
     exceed ``char_budget``, returns the soonest-due tasks up to the budget and
     appends an explicit truncation note. Nothing is ever dropped silently.

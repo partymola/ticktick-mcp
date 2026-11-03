@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 sys.argv = ["pytest", "--dotenv-dir", "/tmp/ticktick-mcp-test"]
 
 # Pre-create a fake config module so that importing ticktick_mcp modules
-# doesn't trigger the real config (which calls parse_args and sys.exit)
+# doesn't trigger the real config (which parses sys.argv and loads .env)
 fake_config = types.ModuleType("ticktick_mcp.config")
 fake_config.CLIENT_ID = "fake_client_id"
 fake_config.CLIENT_SECRET = "fake_client_secret"
@@ -48,11 +48,10 @@ sys.modules["ticktick_mcp.mcp_instance"] = fake_mcp_module
 # Mock the require_ticktick_client decorator to be a no-op
 import ticktick_mcp.helpers as helpers_module  # noqa: E402
 
-# Stash the real decorator before clobbering it. test_helpers.py needs it to
-# test the genuine implementation; without this it had to importlib.reload the
-# module, which rebinds every other name too -- including ToolLogicError, so an
-# `except ToolLogicError` elsewhere stopped matching and the suite became
-# order-dependent.
+# Stash the real decorator before clobbering it, so test_helpers.py can test
+# the genuine implementation without importlib.reload. A reload rebinds every
+# other name too, including ToolLogicError, so an `except ToolLogicError`
+# elsewhere stops matching and the suite turns order-dependent.
 helpers_module._original_require_ticktick_client = helpers_module.require_ticktick_client
 helpers_module.require_ticktick_client = lambda f: f
 

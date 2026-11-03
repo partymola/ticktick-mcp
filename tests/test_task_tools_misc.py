@@ -319,7 +319,7 @@ class TestMoveTask:
         """If task lookup yields a dict without projectId, return not_found error.
 
         NOTE: Known quirk - if get_by_id returns None the next line raises
-        AttributeError, which is caught by the outer try/except and reported
+        TypeError, which is caught by the outer try/except and reported
         as a generic error. The "not_found" path only triggers for an object
         that has no projectId key.
         """
@@ -335,7 +335,7 @@ class TestMoveTask:
         assert parsed["status"] == "not_found"
 
     def test_task_none_falls_through_to_generic_error(self, mock_client):
-        """Characterisation: get_by_id returning None for the task causes AttributeError,
+        """Characterisation: get_by_id returning None for the task causes TypeError,
         caught by the outer except and reported as a generic 'Failed to move task' error."""
         mock_client.get_by_id = MagicMock(return_value=None)
 
@@ -577,8 +577,7 @@ class TestGetById:
         assert parsed["id"] == "x1"
 
     def test_an_unknown_id_answers_an_empty_object(self, mock_client):
-        """The behavioural half. The docstring promised null while the tool
-        returned {}, so a caller branching on null took the wrong branch."""
+        """The behavioural half: an unknown id answers {}, not null."""
         mock_client.get_by_id = MagicMock(return_value={})
 
         with patch(
@@ -637,10 +636,8 @@ class TestGetAll:
             result = run(ticktick_get_all(search="tasks"))
 
         mock_getter.assert_called_once()
-        # NOTE: known BUG - the "tasks" branch computes `all_items` but never
-        # returns it. The function falls off the end of the try block, and
-        # because it isn't wrapped in format_response, the tool returns
-        # Python None (not the string "null"). Characterised as-is.
+        # NOTE, known BUG: the "tasks" branch computes the task list but
+        # returns Python None (not the string "null"). Characterised as-is.
         assert result is None
 
     def test_projects_search_returns_inbox_plus_state(self, mock_client):

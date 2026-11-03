@@ -1,4 +1,4 @@
-"""Tests for update_task fix: partial updates should preserve unmodified fields."""
+"""update_task: a partial update preserves the fields it does not name."""
 
 import asyncio
 import json

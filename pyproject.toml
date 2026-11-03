@@ -25,16 +25,15 @@ classifiers = [
     "Topic :: Office/Business :: Scheduling",
 ]
 # Every dependency is pinned to an exact version that the suite has been run
-# against. A range leaves the choice to the resolver, which is how `mcp` 2.0.0
-# reached installs unannounced and broke them. Bump deliberately, never by
-# widening a spec.
+# against. A range leaves the choice to the resolver, so a breaking release
+# can reach installs unannounced. Bump deliberately, never by widening a spec.
 dependencies = [
     "mcp==2.3.0",
     "anyio==4.15.1",
     "python-dotenv==1.2.4",
     "pydantic==2.14.2",
     # A PEP 508 direct reference, not a bare name: `[tool.uv.sources]` is a uv
-    # extension that pip ignores, so a bare name resolved to the unrelated
+    # extension that pip ignores, so a bare name resolves to the unrelated
     # `ticktick-py` on PyPI for anyone installing with pip - silently, and
     # without the fixes this server depends on. Pinned to a commit for the same
     # reason every other dependency is pinned to a version.

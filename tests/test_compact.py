@@ -2,11 +2,10 @@
 
 Compact mode is the default for the list-returning tools. It must:
   * drop the heavy content/desc/items blobs and add a contentPreview,
-  * keep a 65-task project comfortably under the size budget (the real
-    money project overflowed the MCP result cap in full mode),
+  * keep a 65-task project comfortably under the size budget,
   * never drop a task silently -- over-budget results keep the soonest-due
     tasks and append an explicit truncation note,
-  * reproduce the pre-compact output byte-for-byte when detail="full".
+  * match ``format_response`` byte-for-byte when detail="full".
 
 All task data here is SYNTHETIC. The repo is public; no real account data
 may live in the tests. ``_make_task`` reproduces the field shape and size
@@ -36,7 +35,7 @@ def run(coro):
     return asyncio.run(coro)
 
 
-# Fields the heavy blobs the real payload carried; compact must drop them.
+# The heavy blobs; compact must drop them.
 HEAVY_FIELDS = ("content", "desc", "items")
 # Light fields compact must keep.
 KEEP_FIELDS = (
@@ -161,7 +160,7 @@ class TestCompactTask:
 
 
 # ---------------------------------------------------------------------------
-# render_task_list -- full mode is byte-for-byte identical to the old output
+# render_task_list -- full mode is byte-for-byte identical to format_response
 # ---------------------------------------------------------------------------
 
 
@@ -175,7 +174,7 @@ class TestRenderFullMode:
 
 
 # ---------------------------------------------------------------------------
-# render_task_list -- compact, the 65-task size drop (acceptance criterion)
+# render_task_list -- compact, the 65-task size drop
 # ---------------------------------------------------------------------------
 
 
@@ -185,7 +184,6 @@ class TestCompactSizeDrop:
         full = format_response(tasks)
         compact = render_task_list(tasks, detail="compact")
 
-        # Full overflowed the MCP cap; compact must fit the budget.
         assert len(full) > 70_000
         assert len(compact) < DEFAULT_CHAR_BUDGET
         assert len(compact) < len(full) * 0.5

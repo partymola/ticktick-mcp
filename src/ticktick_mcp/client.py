@@ -72,7 +72,7 @@ def _augment_check_status_code() -> None:
     """Install :func:`_augmented_check_status_code` on ticktick-py's client.
 
     Idempotent, and a no-op if the class has already been augmented. No extra
-    HTTP request is made -- this only changes the exception message text.
+    HTTP request is made: this only changes the exception raised.
     """
     if getattr(TickTickClient, "_status_code_augmented", False):
         return

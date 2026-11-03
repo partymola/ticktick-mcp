@@ -1,11 +1,4 @@
-"""Protected-task guard: config wiring, id normalisation, and relations.
-
-These cover what ``test_protected_tasks.py`` left unpinned. Three classes of
-mutant used to survive the suite: the loader could be replaced wholesale (no
-test went through the environment), a padded or recased id slipped past the
-comparison, and a protected task could be mutated by a call naming only its
-parent.
-"""
+"""Protected-task guard: config wiring, id normalisation, and relations."""
 
 import asyncio
 import json
@@ -271,8 +264,6 @@ def test_move_refuses_a_protected_subtask_only_visible_after_syncing(protect):
 
 
 def test_make_subtask_refuses_a_protected_subtask_only_visible_after_syncing(protect):
-    """make_subtask never had a sync of its own. It inherits one now because
-    the guard owns its freshness, which is the point of moving it there."""
     client = _client_learning_a_protected_subtask_on_sync()
     with patch(
         "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client", return_value=client

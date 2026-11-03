@@ -665,7 +665,7 @@ class TestBuildPropertyFilter:
     def test_invalid_tz_string_is_refused(self):
         """A zone that does not exist is refused rather than dropped.
 
-        Dropping it returned real rows under a timezone that was never
+        Dropped, it would return real rows under a timezone that was never
         applied, which reads as a correct answer to the question asked.
         """
         with pytest.raises(ValueError) as exc_info:

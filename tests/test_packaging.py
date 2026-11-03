@@ -138,8 +138,8 @@ class TestTheContainerKeepsItsTokensOnAVolume(unittest.TestCase):
         self.assertNotIn("value", spec)
         self.assertTrue(spec.get("isRequired"))
         # PurePosixPath, not os.path: the placeholder is POSIX-shaped, and since
-        # 3.13 ntpath.isabs calls a single leading slash relative, so this read
-        # as a non-absolute placeholder on a Windows host.
+        # 3.13 ntpath.isabs calls a single leading slash relative, so this would
+        # read as a non-absolute placeholder on a Windows host.
         self.assertTrue(
             PurePosixPath(spec.get("placeholder", "")).is_absolute(),
             "placeholder must be absolute",
@@ -157,8 +157,8 @@ class TestTheContainerKeepsItsTokensOnAVolume(unittest.TestCase):
 
     def test_the_registry_route_drops_root_like_the_readme_does(self):
         # Declared in both places or in neither: a registry client that only
-        # gets the mount reproduces the outage this release exists to fix,
-        # writing root-owned files a later host-side run cannot update.
+        # gets the mount writes root-owned files a later host-side run cannot
+        # update.
         package = json.loads(SERVER_JSON.read_text())["packages"][0]
         flags = {a.get("name") for a in package.get("runtimeArguments", [])}
         self.assertEqual(flags, {"--user", "-v"})
@@ -240,9 +240,9 @@ class TestEveryPieceOfLocalStateSitsOnTheVolume(unittest.TestCase):
 class TestTheParserRulesThemselves(unittest.TestCase):
     """The two rules the Dockerfile assertions rest on.
 
-    Both were reachable only through a correct Dockerfile, so a parser that
-    quietly stopped honouring either still passed everything above. These
-    drive the parser directly with fixtures instead.
+    The Dockerfile assertions above run the parser only over the real
+    Dockerfile, so a parser that quietly stopped honouring either rule could
+    still pass them. These drive the parser directly with fixtures instead.
     """
 
     def test_an_env_above_a_later_from_does_not_count(self):

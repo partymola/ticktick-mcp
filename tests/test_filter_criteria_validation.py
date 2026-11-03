@@ -69,8 +69,8 @@ class TestTheCriteriaThatNeedNoClient:
             assert known in message, f"{known} is accepted but not offered"
 
     def test_every_recognised_key_is_actually_read(self):
-        """A key in the set that nothing reads is the original defect wearing
-        a different hat: accepted, ignored, and answered with a task list.
+        """A key in the set that nothing reads is accepted, ignored, and
+        answered with a task list.
 
         Handing each one a value no criterion can accept proves something
         looks at it. A key that is merely tolerated raises nothing.
@@ -428,9 +428,9 @@ class TestTheProjectReference:
         """The refusal path's refresh must be FORCED, and its result used.
 
         A throttled refresh returns True without syncing, so a project created
-        since the last sync would be refused as non-existent. Nothing pinned
-        this: the failed-refresh test above takes the same branch whether the
-        call is forced or not, because a raising sync fails either way.
+        since the last sync would be refused as non-existent. The failed-refresh
+        test above cannot pin this: it takes the same branch whether the call is
+        forced or not, because a raising sync fails either way.
         """
         client = _client_with_projects()  # snapshot has not seen p1 yet
         client.sync = MagicMock(
@@ -468,8 +468,8 @@ class TestTheProjectReference:
     )
     def test_an_accented_project_resolves_whichever_way_it_is_spelled(self, stored, typed):
         """Two spellings of one accented name differ by code point, and
-        casefold does not reconcile them. Unresolved now means a refusal
-        naming the project, so the account is told something untrue."""
+        casefold does not reconcile them. Unresolved means a refusal naming
+        the project, so the account is told something untrue."""
         client = _client_with_projects(_project("p1", unicodedata.normalize(stored, "Café")))
         with (
             patch(
@@ -490,8 +490,7 @@ class TestTheProjectReference:
         assert [t["id"] for t in parsed] == ["t1"]
 
     def test_a_project_name_stored_with_padding_still_resolves(self):
-        """`_fold` strips both sides. Longstanding behaviour that moved into a
-        function this change introduced, so it needs its own pin here."""
+        """`_fold` strips both sides."""
         client = _client_with_projects(_project("p1", "  Home  "))
         with (
             patch(
@@ -512,7 +511,7 @@ class TestTheProjectReference:
     def test_a_state_that_cannot_be_read_is_not_a_missing_project(self, unreadable):
         """A sync that succeeds but leaves nothing readable is not evidence
         about the account, so it must not answer as a denial. A truthy
-        non-dict also used to reach ``.get`` and escape as an unexplained
+        non-dict would otherwise reach ``.get`` and escape as an unexplained
         failure."""
         client = _client_with_projects()
         client.state = unreadable
@@ -684,9 +683,8 @@ class TestTheConfirmSequenceItself:
     def test_a_refresh_that_populates_then_fails_is_not_treated_as_read(self):
         """`ticktick-py` writes `state["projects"]` partway through `sync`, so a
         response missing a later key leaves the list populated and then raises.
-        The two copies this function was merged from disagreed here: one
-        re-checked outside the refresh gate and would have answered success off
-        a list it never confirmed. Refusing is the documented side."""
+        Re-checking outside the refresh gate would answer success off a list
+        that was never confirmed."""
         client = _client_with_projects()
 
         def _populate_then_fail():

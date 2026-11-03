@@ -835,10 +835,9 @@ async def update_task(task_object: TaskObject) -> str:
         # completed recurring-history occurrence (its status-2 record is never
         # synced locally) or an unknown id. With no task to copy, the merged body
         # has no routable projectId, and the open-API update then silently no-ops
-        # (returns "") -- which used to surface as a dead-end "re-read and retry"
-        # that can never succeed. Name the one action that works instead: supply a
-        # projectId. When the caller already set one, fall through -- a routable
-        # body reopens the occurrence cleanly.
+        # (returns ""). Name the one action that works: supply a projectId. When
+        # the caller already set one, fall through: a routable body reopens the
+        # occurrence cleanly.
         if not existing and not (
             "projectId" in task_object.model_fields_set and task_object.projectId
         ):

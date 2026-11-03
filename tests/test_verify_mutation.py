@@ -66,7 +66,6 @@ class TestVerifyMutationPresenceFields:
         assert _verify_mutation("create", expected, actual) == []
 
     def test_duedate_missing_warns(self):
-        """Reproduces bug #3: create_task drops dates."""
         expected = {"dueDate": "2024-08-01T17:00:00+0000"}
         actual = {"dueDate": None}
         result = _verify_mutation("create", expected, actual)
@@ -161,17 +160,17 @@ class TestVerifyMutationPresenceFields:
 
 
 class TestVerifyMutationBugReproductions:
-    """Tests that reproduce the 3 historical MCP bugs to verify they would be caught."""
+    """A response that loses dates or reminders is reported, on update and on create."""
 
     def test_bug2_update_wipes_dates_when_changing_priority(self):
-        """Bug #2: updating priority wiped dueDate/startDate/reminders."""
+        """An update that changes only priority and loses the dates and reminders."""
         expected = {
             "priority": 5,
             "dueDate": "2024-08-01T17:00:00+0000",
             "startDate": "2024-08-01T09:00:00+0000",
             "reminders": ["TRIGGER:-PT30M"],
         }
-        # Simulates the buggy API response where dates got wiped
+        # A response with the dates and reminders wiped
         actual = {
             "priority": 5,
             "dueDate": None,
@@ -186,14 +185,14 @@ class TestVerifyMutationBugReproductions:
         assert "reminders" in fields_warned
 
     def test_bug3_create_drops_dates_and_reminders(self):
-        """Bug #3: create_task builder silently dropped dates/reminders."""
+        """A create whose response drops the date and reminders."""
         expected = {
             "title": "Team Meeting",
             "dueDate": "2024-08-01T17:00:00+0000",
             "reminders": ["TRIGGER:-PT15M"],
             "priority": 3,
         }
-        # Simulates the buggy response where dates/reminders were dropped
+        # A response with the date and reminders dropped
         actual = {
             "title": "Team Meeting",
             "dueDate": None,

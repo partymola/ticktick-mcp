@@ -8,9 +8,8 @@ FROM ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d
 #
 # The patch tag, not `3.14-slim`, and that is what keeps digest updates coming.
 # Dependabot treats the tag as the version and will not open a pull request for
-# a version one already exists for - and a closed one still counts. The 3 Aug
-# `3.13-slim -> 3.14-slim` pull request was closed here, so every later rebuild
-# of `3.14-slim` collided with it and went unoffered for seven weeks. Both
+# a version one already exists for, and a closed one still counts. So once a
+# floating tag's pull request is closed, no later rebuild of it is offered. Both
 # stages must move together, or the build and runtime images diverge.
 FROM python:3.15.0-slim@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58 AS build
 

@@ -1,9 +1,8 @@
 """Tests for recurring-aware completion in ticktick_complete_task.
 
 A recurring task rolls forward on completion (same id reappears as the next
-occurrence with status 0), which the old code misreported as
-"status still indicates open". These tests pin the recurring-aware handling
-and confirm the non-recurring path is unchanged.
+occurrence with status 0). That is a success, not the "status still indicates
+open" warning a non-recurring task left open gets. These tests pin both.
 """
 
 import asyncio
@@ -29,7 +28,7 @@ class TestIsRecurring:
         assert _is_recurring({"repeatFlag": "RRULE:FREQ=DAILY;INTERVAL=1"}) is True
 
     def test_repeat_from_completion_mode_empty_flag(self):
-        # The incident shape: repeatFrom set, repeatFlag empty.
+        # A live recurring task can carry repeatFrom with an empty repeatFlag.
         assert _is_recurring({"repeatFrom": "2", "repeatFlag": ""}) is True
 
     def test_repeat_task_id(self):
@@ -101,7 +100,7 @@ class TestCompleteRecurring:
         assert "_verification_warnings" not in parsed
 
     def test_non_recurring_status_zero_still_warns(self, mock_client):
-        """A NON-recurring task left at status 0 keeps the open-status warning."""
+        """A NON-recurring task left at status 0 gets the open-status warning."""
         task_obj = {"id": "t1", "projectId": "p1", "status": 0}
         mock_client.get_by_id = MagicMock(side_effect=[task_obj, task_obj])
         mock_client.task.complete = MagicMock(return_value={"some": "resp"})

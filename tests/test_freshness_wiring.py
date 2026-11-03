@@ -1,10 +1,9 @@
 """Pin that the tools actually invoke the freshness sync in the right places.
 
-These guard the Problem-1 fix itself: the freshness module is unit-tested
-elsewhere, but these assert the WIRING -- that each active-read tool syncs
-before reading, each mutation force-syncs before its pre-read, and the
-filter tool syncs on the uncompleted path but NOT on the (already-live)
-completed path.
+The freshness module is unit-tested elsewhere; these assert the WIRING:
+that each active-read tool syncs before reading, each mutation force-syncs
+before its pre-read, and the filter tool syncs on the uncompleted path but
+NOT on the (already-live) completed path.
 """
 
 import asyncio
@@ -98,8 +97,9 @@ class TestFilterSyncGating:
 
 # --- pre-read freshness: the sync serves the tool's OWN read ------------------
 #
-# These are separate from project resolution. Removing them was possible because
-# nothing observed them: the resolver's own sync satisfied the assertions above.
+# These assert on what the pre-read saw rather than on a sync count. With
+# "p1" known the resolver does not sync, so the tool's own refresh is the one
+# that reveals the task.
 
 
 def _client_where_the_task_only_appears_after_sync():
@@ -140,8 +140,9 @@ def test_delete_syncs_before_its_own_pre_read():
 
 
 def test_make_subtask_syncs_before_its_own_pre_reads():
-    """Both ends are read from local state and sent back. This tool had no sync
-    of its own and only got one when protection happened to be configured."""
+    """Both ends are read from local state and sent back. With no protection
+    configured the guard returns before syncing, so the tool's own forced
+    refresh is the only sync this test can see."""
     client = MagicMock()
     client.state = {"projects": [{"id": "p1", "name": "Project One"}], "tasks": []}
     client.inbox_id = "inbox1"

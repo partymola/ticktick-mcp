@@ -1,10 +1,8 @@
 """Every outcome of ``ticktick_complete_task`` should be readable from one field.
 
-Two of the three success paths tagged themselves with ``outcome`` and the most
-common one -- task completed and refetched with status 2 -- tagged nothing, so a
-caller could not branch on the field without also parsing warnings. A recurring
-completion in particular comes back at status 0, which reads as failure to
-anyone who checks status instead.
+Every success path carries ``outcome``, so a caller can branch on it without
+also parsing warnings. A recurring completion in particular comes back at
+status 0, which reads as failure to anyone who checks status instead.
 """
 
 import asyncio
@@ -39,8 +37,7 @@ def _run(client, before, after):
 
 
 def test_ordinary_completion_is_tagged(mock_client):
-    """The common path. Previously returned the refetched task untagged, so a
-    caller reading `outcome` saw nothing on the most frequent success."""
+    """A task refetched at status 2 is tagged like every other success."""
     assert _run(mock_client, OPEN_TASK, DONE_TASK)["outcome"] == "completed"
 
 

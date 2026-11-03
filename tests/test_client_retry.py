@@ -18,8 +18,8 @@ import pytest
 import ticktick_mcp.client as client_module
 from ticktick_mcp.client import TickTickClientSingleton
 
-# Not `hasattr(os, "fchmod")`: CPython 3.13 added os.fchmod on Windows, so that
-# test no longer selects POSIX while the mode bits behind it are still absent.
+# Not `hasattr(os, "fchmod")`: os.fchmod exists on Windows from CPython 3.13,
+# where the mode bits behind it are still absent.
 skip_non_posix = pytest.mark.skipif(
     sys.platform == "win32", reason="POSIX mode bits; Windows uses ACLs"
 )
@@ -216,9 +216,9 @@ class TestV2TokenCache:
     def test_an_undecodable_cache_is_deleted_rather_than_bricking_the_server(self, tmp_path):
         """read_text raises UnicodeDecodeError, a ValueError, not an OSError.
 
-        It escaped before the injection point, so nothing cleared the cache
-        and every retry failed identically - unrecoverable without hand-
-        deleting a file users are told to keep.
+        Left to escape, nothing clears the cache and every retry fails
+        identically. Only hand-deleting a file users are told to keep would
+        recover it.
         """
         with patch.object(client_module, "dotenv_dir_path", tmp_path):
             path = tmp_path / client_module._V2_TOKEN_FILENAME
@@ -401,7 +401,7 @@ class TestOnlyARejectionCostsTheCachedToken:
     def test_an_oauth_side_failure_never_costs_the_session_token(self, tmp_path):
         """The OAuth step raises KeyError on a mis-pasted redirect URL.
 
-        Built inside the guarded try, that read as a verdict on the v2
+        Built inside the guarded try, that would read as a verdict on the v2
         session token - reached through the prompt the auth subcommand
         exists to run.
         """
@@ -560,7 +560,8 @@ class TestTheAugmentationActuallyInstalls:
 
 
 class TestTheCredentialFilesAreOwnerOnly:
-    """Claims that survived mutation until these existed."""
+    """Owner-only modes on POSIX for the credential files and config directory,
+    and an unreadable OAuth cache discarded without losing a valid one."""
 
     @skip_non_posix
     def test_an_existing_loose_token_is_tightened_on_rewrite(self, tmp_path):
@@ -597,9 +598,9 @@ class TestTheCredentialFilesAreOwnerOnly:
     def test_an_unreadable_oauth_cache_is_discarded_rather_than_bricking(self, tmp_path):
         """ticktick-py's cache reader catches only IOError.
 
-        A file that is not JSON or not UTF-8 escaped construction entirely,
-        so every retry failed identically with a JSON parse error - the same
-        brick the .token-v2 fix closed, by the other file.
+        Left in place, a file that is not JSON or not UTF-8 escapes
+        construction entirely, so every retry fails identically with a parse
+        error.
         """
         cache = tmp_path / ".token-oauth"
         cache.write_bytes(b"\xff\xfe not json either")

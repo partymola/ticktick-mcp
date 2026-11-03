@@ -158,9 +158,9 @@ class TestGetProcessedIdsForProject:
 class TestMarkCompletionProcessedTool:
     @pytest.fixture(autouse=True)
     def _known_projects(self):
-        """The tool resolves project_id now, and refuses a value it cannot
-        match, because that value is the DB key. These tests predate that, so
-        give them a client that knows the projects they use."""
+        """The tool refuses a project_id it cannot match, because that value is
+        the DB key, so these tests need a client that knows the projects they
+        use."""
         client = MagicMock()
         client.state = {
             "projects": [{"id": p, "name": p} for p in ("projA", "projB", "projC")],
