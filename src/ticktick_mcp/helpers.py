@@ -37,8 +37,8 @@ class ToolLogicError(Exception):
 def format_response(result: Any) -> str:
     """Serialise a Python value into a JSON string for MCP transport.
 
-    * ``dict`` / ``list`` -> ``json.dumps`` with indent=2 and
-      ``default=str`` so ``datetime``-like values do not crash the call.
+    * ``dict`` / ``list`` -> compact ``json.dumps`` with ``default=str`` so
+      ``datetime``-like values do not crash the call.
     * ``None`` -> the JSON literal ``"null"``.
     * Anything else -> wrapped as ``{"result": str(value)}`` so the client
       always receives a JSON object.
@@ -48,7 +48,9 @@ def format_response(result: Any) -> str:
     """
     try:
         if isinstance(result, (dict, list)):
-            return json.dumps(result, indent=2, default=str)
+            # ensure_ascii stays at its default on purpose, so a non-ASCII character
+            # costs several characters of budget as an escape.
+            return json.dumps(result, default=str)
         if result is None:
             return json.dumps(None)
         return json.dumps({"result": str(result)})

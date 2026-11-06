@@ -26,6 +26,7 @@ The `scripts/check-no-data.sh` pre-commit hook refuses `*.db` files with their j
 - **Completion DB** (`src/ticktick_mcp/completion_db.py`) - local SQLite that tracks which completed tasks have been processed by an agent, so the same completion isn't acted on twice.
 - **Verification** (`src/ticktick_mcp/verification.py`) - read-after-write check that compares what was sent to the API against what came back, attaching `_verification_warnings` to mutated tasks.
 - **Freshness** (`src/ticktick_mcp/freshness.py`) - on-demand, throttled `client.sync()` so long-lived reads do not go stale (see below).
+- **Compact rendering** (`src/ticktick_mcp/compact.py`) - the list tools' default view. `render_task_list` measures the reply with the same `format_response` that renders it, so `char_budget` counts the characters of the text the tool returns; never size it with a different serialiser. Pinned by `TestBudgetMeasuresTheReplyAsSent` in `tests/test_compact.py` and `test_a_reply_is_its_compact_json` in `tests/test_helpers.py`.
 
 ## Session token cache and failure classification
 

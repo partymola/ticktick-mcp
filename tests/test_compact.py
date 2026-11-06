@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ticktick_mcp.compact import (
+    _NOTE_RESERVE,
     CONTENT_PREVIEW_CHARS,
     DEFAULT_CHAR_BUDGET,
     compact_task,
@@ -360,3 +361,43 @@ class TestFilterTasksDetail:
         parsed = json.loads(result)
         assert parsed["status"] == "error"
         assert "Invalid detail" in parsed["error"]
+
+
+# ---------------------------------------------------------------------------
+# render_task_list -- char_budget counts the characters of the text returned
+# ---------------------------------------------------------------------------
+
+
+def _sent(value):
+    return json.dumps(value, default=str)
+
+
+class TestBudgetMeasuresTheReplyAsSent:
+    def _dated(self, n):
+        base = datetime.date(2026, 1, 1)
+        return [
+            _make_task(i, due=f"{base + datetime.timedelta(days=i)}T20:45:00.000+0000")
+            for i in range(n)
+        ]
+
+    def test_a_compact_list_is_its_compact_json(self):
+        tasks = [_make_task(i) for i in range(5)]
+        assert render_task_list(tasks, detail="compact") == _sent([compact_task(t) for t in tasks])
+
+    def test_truncation_keeps_every_task_that_fits(self):
+        tasks = self._dated(200)
+        parsed = json.loads(render_task_list(tasks, detail="compact"))
+        assert "_truncation_note" in parsed[-1]
+        returned = parsed[:-1]
+        # Due dates ascend with the index, so soonest-due order is input order.
+        assert returned == [compact_task(t) for t in tasks[: len(returned)]]
+        following = compact_task(tasks[len(returned)])
+        assert len(_sent(returned + [following])) > DEFAULT_CHAR_BUDGET - _NOTE_RESERVE
+
+    def test_a_value_that_is_not_a_list_is_its_compact_json(self):
+        assert render_task_list({"x": 1}, detail="compact") == _sent({"x": 1})
+
+    def test_a_list_exactly_at_the_budget_is_not_truncated(self):
+        tasks = [_make_task(i) for i in range(5)]
+        reply = _sent([compact_task(t) for t in tasks])
+        assert render_task_list(tasks, detail="compact", char_budget=len(reply)) == reply

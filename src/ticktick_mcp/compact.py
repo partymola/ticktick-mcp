@@ -1,13 +1,11 @@
 """Compact rendering for the list-returning task tools.
 
 The list tools (``ticktick_get_tasks_from_project``, ``ticktick_filter_tasks``)
-can return large task sets whose ``content`` blobs dominate the payload -- a
-65-task project serialises to ~76k chars, enough to blow the MCP result cap
-and force a dump-to-disk fallback. Compact mode keeps the light,
-browsing-relevant fields plus a short ``contentPreview`` and drops the heavy
-blobs (``content``, ``desc``, checklist ``items``) and bulky sync metadata
-(``etag``, ``modifiedTime``, ``creator`` ...), cutting the same project to
-~32k chars.
+can return large task sets whose ``content`` blobs dominate the payload, enough
+to exceed the client's result cap and force a dump-to-disk fallback. Compact
+mode keeps the light, browsing-relevant fields plus a short ``contentPreview``
+and drops the heavy blobs (``content``, ``desc``, checklist ``items``) and
+bulky sync metadata (``etag``, ``modifiedTime``, ``creator`` ...).
 
 Full content for any single task stays reachable via ``ticktick_get_by_id``.
 
@@ -46,9 +44,9 @@ COMPACT_FIELDS = (
 
 CONTENT_PREVIEW_CHARS = 200
 
-# Stay comfortably below the MCP result cap (a ~76k-char full payload
-# overflowed it). ~32k for 65 compact tasks leaves headroom to ~80 tasks
-# before the in-band truncation note kicks in.
+# Counts the characters of the text the tool returns, and is meant to keep the
+# result under the client's result cap. 40000 is meant to sit below the
+# client's character-based first check of that cap, with headroom.
 DEFAULT_CHAR_BUDGET = 40000
 
 # Room reserved for the appended truncation note when trimming to budget.

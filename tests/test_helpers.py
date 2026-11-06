@@ -43,12 +43,21 @@ def run(coro):
 
 
 class TestFormatResponseDict:
-    def test_dict_returns_indent2_json(self):
+    def test_dict_returns_json(self):
         out = format_response({"a": 1, "b": "two"})
-        # json.dumps(..., indent=2) puts each key on its own line
-        assert "\n" in out
         parsed = json.loads(out)
         assert parsed == {"a": 1, "b": "two"}
+
+    @pytest.mark.parametrize(
+        "result",
+        [
+            {"title": "Café ☕", "due": datetime.date(2026, 11, 6)},
+            [1, [2, [3, {"inner": [4, []]}]], {"a": {"b": "c"}}],
+        ],
+        ids=["dict-non-ascii-and-date", "nested-list"],
+    )
+    def test_a_reply_is_its_compact_json(self, result):
+        assert format_response(result) == json.dumps(result, default=str)
 
     def test_dict_default_str_handles_datetime(self):
         """datetime values are stringified by default=str (otherwise they'd raise TypeError)."""

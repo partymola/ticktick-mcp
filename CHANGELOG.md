@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Tool results are compact JSON rather than indented. Indentation made a result's size grow with the square of its nesting, so a deeply nested reply could become megabytes. The size budget of `ticktick_filter_tasks` and `ticktick_get_tasks_from_project` still counts characters, so a compact list now holds roughly 10 to 20% more tasks before the truncation note. Otherwise only whitespace changes.
+
 ## [0.6.1] - 2026-11-03
 
 ### Packaging
