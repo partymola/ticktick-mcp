@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `ticktick_get_all` with `search="tasks"` answers with an error naming `ticktick_filter_tasks`, without a sync of its own. It fetched every open task and then returned nothing, which reached the caller as an error that did not say what was wrong.
+
 ## [0.6.2] - 2026-11-06
 
 ### Changed

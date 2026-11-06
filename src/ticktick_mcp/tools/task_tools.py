@@ -41,7 +41,6 @@ from ..completion_db import (
 from ..freshness import ensure_fresh
 from ..helpers import (
     ToolLogicError,
-    _get_all_tasks_from_ticktick,
     format_response,
     require_ticktick_client,
 )
@@ -1511,30 +1510,25 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
     """Dump everything of a single kind from the local sync state.
 
     Args:
-        search (str): Either ``"tasks"``, ``"projects"`` or ``"tags"``
+        search (str): Either ``"projects"`` or ``"tags"``
             (case-insensitive).
         detail (str, optional): ``"compact"`` (default) or ``"full"``.
             Accepted for parity with the other list tools and validated
-            here. It has no effect on the ``"projects"``/``"tags"``
-            searches (those return non-task records in full) nor on the
-            currently inert ``"tasks"`` search -- for a compact task list
-            use ``ticktick_filter_tasks`` or
-            ``ticktick_get_tasks_from_project``.
+            here. It has no effect: both searches return non-task records
+            in full.
 
     Returns:
         For ``"projects"``: JSON list, inbox prepended as
         ``{"id": <inbox>, "name": "Inbox"}``.
         For ``"tags"``: JSON list of tag objects.
-        For ``"tasks"``: see Limitations.
-        Unknown search type: ``{"error": "Invalid search type...",
+        For ``"tasks"`` or any other value: ``{"error": "...",
         "status": "error"}``.
 
     Limitations:
-        - ``"tasks"`` triggers a fetch of every open task across all
-          projects, but the current implementation returns ``None``
-          rather than a JSON string. Use
-          ``ticktick_filter_tasks({"status": "uncompleted"})`` for a
-          proper (compact) JSON response.
+        - It does not list tasks. ``"tasks"`` is answered with an error,
+          without a sync of its own. List open tasks with
+          ``ticktick_filter_tasks(filter_criteria={"status": "uncompleted"})``,
+          or one project's with ``ticktick_get_tasks_from_project``.
 
     Example:
         ticktick_get_all(search="projects")
@@ -1545,6 +1539,19 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
         return format_response({"error": str(exc), "status": "error"})
 
     try:
+        key = (search or "").strip().lower()
+        if key == "tasks":
+            return format_response(
+                {
+                    "error": (
+                        "ticktick_get_all does not list tasks. Use ticktick_filter_tasks with "
+                        'filter_criteria={"status": "uncompleted"} for every open task, or '
+                        "ticktick_get_tasks_from_project for one project."
+                    ),
+                    "status": "error",
+                }
+            )
+
         client = TickTickClientSingleton.get_client()
         # Deliberately a raw sync rather than ensure_fresh: this tool reports
         # the underlying failure to the caller, and ensure_fresh is fail-soft
@@ -1552,12 +1559,6 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
         # updated, so a read immediately after this one syncs again.
         client.sync()
 
-        key = (search or "").strip().lower()
-        if key == "tasks":
-            # Documented quirk pinned by the test suite: result is
-            # computed but not returned, so the tool yields Python None.
-            _ = _get_all_tasks_from_ticktick()
-            return None  # type: ignore[return-value]
         if key == "projects":
             projects = list(client.state.get("projects", []) or [])
             inbox_id = getattr(client, "inbox_id", None)
@@ -1571,7 +1572,7 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
 
         return format_response(
             {
-                "error": (f"Invalid search type {search!r}. Use 'tasks', 'projects', or 'tags'."),
+                "error": (f"Invalid search type {search!r}. Use 'projects' or 'tags'."),
                 "status": "error",
             }
         )

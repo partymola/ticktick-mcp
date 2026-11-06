@@ -616,29 +616,31 @@ class TestGetById:
 
 
 class TestGetAll:
-    def test_tasks_search_calls_get_all_tasks(self, mock_client):
-        """search='tasks' should invoke _get_all_tasks_from_ticktick."""
-        mock_client.sync = MagicMock()
-        mock_client.state = {"projects": [], "tags": []}
-        mock_client.inbox_id = "inbox123"
-
-        fake_tasks = [{"id": "t1"}, {"id": "t2"}]
-        with (
-            patch(
-                "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
-                return_value=mock_client,
-            ),
-            patch(
-                "ticktick_mcp.tools.task_tools._get_all_tasks_from_ticktick",
-                return_value=fake_tasks,
-            ) as mock_getter,
+    @pytest.mark.parametrize("search", ["tasks", " TASKS "])
+    def test_tasks_search_is_an_error_naming_the_tool_that_lists_tasks(self, mock_client, search):
+        """An empty answer would read as "no tasks", so it is an error, and it
+        is answered without a sync of its own."""
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+            return_value=mock_client,
         ):
-            result = run(ticktick_get_all(search="tasks"))
+            result = run(ticktick_get_all(search=search))
 
-        mock_getter.assert_called_once()
-        # NOTE, known BUG: the "tasks" branch computes the task list but
-        # returns Python None (not the string "null"). Characterised as-is.
-        assert result is None
+        parsed = json.loads(result)
+        assert parsed["status"] == "error"
+        assert 'ticktick_filter_tasks with filter_criteria={"status"' in parsed["error"]
+        assert "ticktick_get_tasks_from_project" in parsed["error"]
+        mock_client.sync.assert_not_called()
+        mock_client.task.get_from_project.assert_not_called()
+
+    def test_a_search_that_is_not_a_string_answers_an_error(self, mock_client):
+        with patch(
+            "ticktick_mcp.tools.task_tools.TickTickClientSingleton.get_client",
+            return_value=mock_client,
+        ):
+            result = run(ticktick_get_all(search=123))
+
+        assert json.loads(result)["status"] == "error"
 
     def test_projects_search_returns_inbox_plus_state(self, mock_client):
         """search='projects' returns inbox + state['projects']."""
