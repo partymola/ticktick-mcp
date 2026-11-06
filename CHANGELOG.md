@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-11-06
 
 ### Changed
 
@@ -221,7 +221,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/partymola/ticktick-mcp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/partymola/ticktick-mcp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/partymola/ticktick-mcp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/partymola/ticktick-mcp/compare/v0.5.0...v0.6.0
