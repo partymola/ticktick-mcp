@@ -554,7 +554,7 @@ def _confirmed_project(client, value: Optional[str]) -> tuple[Optional[str], Opt
 # --- Public MCP tool ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPACT) -> str:
     """Return the tasks matching every supplied filter criterion.

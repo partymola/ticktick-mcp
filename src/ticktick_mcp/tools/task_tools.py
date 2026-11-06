@@ -535,7 +535,7 @@ def _is_recurring(task: dict) -> bool:
 # --- create_task ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_create_task(
     title: str,
@@ -727,7 +727,7 @@ async def ticktick_create_task(
 # --- update_task ---
 
 
-@mcp.tool(name="ticktick_update_task")
+@mcp.tool(name="ticktick_update_task", structured_output=False)
 @require_ticktick_client
 async def update_task(task_object: TaskObject) -> str:
     """Update an existing task without wiping unmodified fields.
@@ -976,7 +976,7 @@ async def update_task(task_object: TaskObject) -> str:
 # --- delete_tasks ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_delete_tasks(
     task_ids: Union[str, List[str]],
@@ -1096,7 +1096,7 @@ async def ticktick_delete_tasks(
 # --- get_tasks_from_project ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_COMPACT) -> str:
     """Return every open task in a project.
@@ -1165,7 +1165,7 @@ async def ticktick_get_tasks_from_project(project_id: str, detail: str = DETAIL_
 # --- complete_task ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_complete_task(task_id: str) -> str:
     """Mark a task as completed.
@@ -1284,7 +1284,7 @@ async def ticktick_complete_task(task_id: str) -> str:
 # --- move_task ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_move_task(task_id: str, new_project_id: str) -> str:
     """Move a task into a different project.
@@ -1363,7 +1363,7 @@ async def ticktick_move_task(task_id: str, new_project_id: str) -> str:
 # --- make_subtask ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_make_subtask(parent_task_id: str, child_task_id: str) -> str:
     """Nest ``child_task_id`` under ``parent_task_id``.
@@ -1469,7 +1469,7 @@ async def ticktick_make_subtask(parent_task_id: str, child_task_id: str) -> str:
 # --- get_by_id ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_get_by_id(obj_id: str) -> str:
     """Look up any object (task, project, tag) by its ID.
@@ -1504,7 +1504,7 @@ async def ticktick_get_by_id(obj_id: str) -> str:
 # --- get_all ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
     """Dump everything of a single kind from the local sync state.
@@ -1584,7 +1584,7 @@ async def ticktick_get_all(search: str, detail: str = DETAIL_COMPACT) -> str:
 # --- sync ---
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_sync() -> str:
     """Force an immediate refresh of TickTick state from the server.

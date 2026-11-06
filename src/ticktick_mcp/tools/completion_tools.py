@@ -67,7 +67,7 @@ def _resolve_completion_project(project_id: str):
     )
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_get_unprocessed_completions(
     project_id: str,
@@ -159,7 +159,7 @@ async def ticktick_get_unprocessed_completions(
     return format_response(unprocessed)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @require_ticktick_client
 async def ticktick_mark_completion_processed(
     task_id: str,

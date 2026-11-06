@@ -17,7 +17,7 @@ from ..mcp_instance import mcp
 logger = logging.getLogger(__name__)
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 async def ticktick_convert_datetime_to_ticktick_format(
     datetime_iso_string: str,
     tz: str,

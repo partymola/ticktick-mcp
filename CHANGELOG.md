@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tool results are sent as text only. Each also carried the same JSON again as escaped structured content, which some clients, Claude Code among them, show the model in place of the text. That copy is longer than the text by its `{"result": ...}` wrapper and by one character for every quotation mark and backslash. Tools no longer declare an output schema, so a client that read `structuredContent` must read the text content instead. The 40000-character budget of `ticktick_filter_tasks` and `ticktick_get_tasks_from_project` now measures the text the model is given.
+
 ### Fixed
 
 - `ticktick_get_all` with `search="tasks"` answers with an error naming `ticktick_filter_tasks`, without a sync of its own. It fetched every open task and then returned nothing, which reached the caller as an error that did not say what was wrong.

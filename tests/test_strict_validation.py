@@ -63,7 +63,7 @@ def test_registered_tool_rejects_unknown_kwarg():
 
     server = MCPServer("strictness-probe")
 
-    @server.tool()
+    @server.tool(structured_output=False)
     def echo(wanted: str = "fallthrough") -> str:
         return wanted
 
