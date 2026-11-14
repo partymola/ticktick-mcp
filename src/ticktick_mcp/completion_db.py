@@ -14,7 +14,9 @@ Schema:
 """
 
 import logging
+import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -35,6 +37,16 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_get_db_path()))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _touch() -> None:
+    """Set the store's timestamp, which a file-sync client notices where it
+    misses SQLite's own writes (see AGENTS.md, Completion DB). Callers close
+    their connection first, since Windows can refuse it on a file held open."""
+    try:
+        os.utime(_get_db_path())
+    except OSError as exc:
+        logging.warning("Could not touch %s: %s", _get_db_path(), exc)
 
 
 def init_db() -> None:
@@ -76,7 +88,7 @@ def mark_processed(
     """
     now = datetime.now(timezone.utc).isoformat()
     try:
-        with _connect() as conn:
+        with closing(_connect()) as conn, conn:
             conn.execute(
                 """
                 INSERT INTO completion_tracking
@@ -89,14 +101,20 @@ def mark_processed(
         logging.debug("Marked task %s as processed.", task_id)
     except sqlite3.IntegrityError:
         logging.warning("Task %s already in completion_tracking; skipping.", task_id)
+        return
+    _touch()
 
 
 def clear_processed(task_id: str) -> None:
     """Drop the row marking ``task_id`` as processed, if there is one."""
-    with _connect() as conn:
-        conn.execute("DELETE FROM completion_tracking WHERE task_id = ?", (task_id,))
+    with closing(_connect()) as conn, conn:
+        deleted = conn.execute(
+            "DELETE FROM completion_tracking WHERE task_id = ?", (task_id,)
+        ).rowcount
         conn.commit()
     logging.debug("Cleared any completion record for task %s.", task_id)
+    if deleted:
+        _touch()
 
 
 def get_processed_ids_for_project(project_id: str) -> set:
