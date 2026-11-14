@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-11-14
+
+### Fixed
+
+- `ticktick_get_unprocessed_completions` returns every completion in its window. TickTick answers a request for completed tasks with the newest 100 across the whole account. The queue filtered by project only after that, so on a busy account older completions were missing with no error. A full answer is now asked again in halves of the window, and `ticktick_filter_tasks` with `status: "completed"` reads the same way. A single day with 100 or more completions still returns only its newest 100.
+- A completed-task window that starts and ends on the same day no longer fails when the start time is later than the end time. Bounds are whole days, as documented.
+- The completion-tracking database sets its file's timestamp after each change. A file-sync client was seen uploading it only after a timestamp change. A config directory shared between machines then kept a separate copy on each, and the sync set one aside as a conflict copy. Completions recorded only in that copy came back to be handled again.
+
+### Documentation
+
+- `docs/why-not-the-official-api.md` says what TickTick's Open API now covers, what still needs v2, and what would make this server move.
+
 ## [0.7.0] - 2026-11-06
 
 ### Changed
@@ -221,7 +233,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Routable-reopen guidance: `ticktick_update_task` returns `outcome: "needs_project_id"` when the target id is not in local sync state (`get_by_id` returns `{}`, typical for a completed recurring-history occurrence) and no `projectId` was supplied - the projectId-less open-API update would silently no-op, so the tool skips the futile POST and asks for a `projectId` (which lets the reopen succeed) instead of dead-end retry advice.
 - Recurring reopen guard: `ticktick_update_task` returns `outcome: "reopen_no_effect"` (an error) when the only substantive change is `status:0` on a recurring task that has already rolled forward - such a "reopen" of the series id changes nothing and does not undo the completion, so it is refused with an explanation instead of reading as success. Updates that also change another field proceed unchanged.
 
-[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/partymola/ticktick-mcp/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/partymola/ticktick-mcp/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/partymola/ticktick-mcp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/partymola/ticktick-mcp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/partymola/ticktick-mcp/compare/v0.6.0...v0.6.1
