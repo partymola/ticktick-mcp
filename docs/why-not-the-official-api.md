@@ -4,20 +4,18 @@
 
 ## Background
 
-`ticktick-mcp` talks to TickTick through the [`ticktick-py`](https://github.com/partymola/ticktick-py) library, which uses TickTick's **unofficial v2 API** (the same one the web client uses). On connect it performs a username/password login plus a registered OAuth app, and pulls the full account - all tasks, projects, and tags - into local state in one sync. Most of the list/filter/completion tools read from that synced state. Create, update and complete are the exception, posting to the Open API with that OAuth token.
+`ticktick-mcp` talks to TickTick through the [`ticktick-py`](https://github.com/partymola/ticktick-py) library, which uses TickTick's **unofficial v2 API** (the same one the web client uses). On connect it performs a username/password login plus a registered OAuth app, and pulls the full account - all open tasks, projects, and tags - into local state in one sync. Most of the list and filter tools read from that synced state; completed tasks are fetched when asked for. Create, update and complete are the exception, posting to the Open API with that OAuth token.
 
 The alternative is the **official TickTick Open API** (`https://api.ticktick.com/open/v1`, OAuth 2.0, scopes `tasks:read`/`tasks:write`), which needs no `ticktick-py` and never stores the user's password.
 
 ## Why not migrate
 
-The official API is deliberately minimal. It can create/get/update/complete/delete a task (every operation requires a known `projectId`) and do project CRUD. It **cannot**:
+The Open API lists completed tasks and tags, and it filters across projects. Two things this server does still need v2.
 
-- **List completed tasks.** There is no completion-history endpoint. This alone is decisive: it makes `ticktick_get_unprocessed_completions` + `ticktick_mark_completion_processed` - the "process each completed task exactly once" workflow that automation is built around - impossible to reproduce.
-- **Tags** - no endpoint at all (read, assign, or filter).
-- **List tasks across projects** - every read is scoped to one project, so any cross-project list or filter becomes an N+1 fetch (list projects, then fetch each project's tasks) instead of one sync.
-- **Bare-ID lookup** of a task/project/tag without its `projectId`; **convert an existing task into a subtask**; batch operations; habits.
+- **Removing a reminder.** The Open API keeps a task's reminders while the task keeps its date. Only v2 clears them.
+- **Reading every open task at once.** v2 returns every open task, project and tag in one sync. The id lookups and the protected-task guard read from that copy. The Open API needs a call per project for the same, and its cross-project filter stops at 200 tasks.
 
-Migrating would trade those features - which are the point of this server - for the sole gains of OAuth robustness and not storing a password. That trade isn't worth it while the fork is maintained.
+Moving would end the need for a stored password and the headless login. It would also lose reminder removal and turn each full read into a call per project. That trade is not yet worth making while the fork's login works.
 
 ## Risk being accepted, and its mitigations
 
@@ -34,8 +32,8 @@ Mitigations already in place:
 Revisit this decision if **either**:
 
 1. The headless v2 login breaks and cannot be re-fixed in the fork within a few days; **or**
-2. TickTick ships a list-completed-tasks endpoint **and** a tags endpoint on the official API.
+2. The Open API gains reminder removal.
 
 ## Contingency if v2 login dies permanently
 
-Fall back to the official OAuth API for basic task/project CRUD, with completions-history and tags features marked unavailable; or extract a session token from the web client as a stopgap. The fallback is a bounded, later-payable cost - which is exactly why it isn't worth paying pre-emptively now.
+Move this server onto the Open API. The completion record stays, because it lives in this server. The protected-task guard stays too, but its subtask check would read every project on each delete or move. Removing reminders would stop working.

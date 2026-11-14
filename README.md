@@ -88,7 +88,7 @@ The server looks for `.env` in this order: the `--dotenv-dir <path>` argument, t
 
 Your TickTick credentials live only in your local `.env` (or the environment) and are sent only to TickTick's own servers - never to the developer or any third party. The server reads and writes only your own account.
 
-This server relies on TickTick's unofficial v2 API (via `ticktick-py`) rather than only the official Open API. That is a deliberate choice: the official API has no list-completed-tasks endpoint, no tags, and no cross-project task listing - all of which this server relies on. Reads, completed lists, delete, move and subtask go through v2, as does removing a reminder. Create, update and complete use the Open API. See [docs/why-not-the-official-api.md](https://github.com/partymola/ticktick-mcp/blob/main/docs/why-not-the-official-api.md) for the full rationale, the risk trade-off, and the triggers that would make us reconsider.
+This server uses TickTick's unofficial v2 API (via `ticktick-py`) as well as the official Open API. Reads, completed lists, delete, move and subtask go through v2, as does removing a reminder. Create, update and complete use the Open API. The Open API covers completed tasks and tags, but some of what this server does still needs v2. See [docs/why-not-the-official-api.md](https://github.com/partymola/ticktick-mcp/blob/main/docs/why-not-the-official-api.md) for which features, and for what would make us move.
 
 ## Register with Claude Code
 
