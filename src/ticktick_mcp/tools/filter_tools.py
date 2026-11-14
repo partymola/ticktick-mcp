@@ -264,6 +264,60 @@ class PropertyFilter(BaseModel):
 # --- TaskFilterer ---
 
 
+# ticktick-py asks v2 for at most this many completed tasks, and TickTick
+# answers with the newest that many across the account (measured 14 Nov 2026).
+_COMPLETED_ANSWER_LIMIT = 100
+
+
+def _get_completed(
+    client,
+    start: Optional[datetime.datetime],
+    end: Optional[datetime.datetime],
+    tz_name: Optional[str],
+) -> list[dict]:
+    kwargs: dict[str, Any] = {"start": start, "end": end}
+    if tz_name:
+        kwargs["tz"] = tz_name
+    tasks = client.task.get_completed(**kwargs)
+    if tasks is None:
+        return []
+    if isinstance(tasks, dict):
+        return [tasks]
+    return tasks
+
+
+def _completed_between(
+    client, first: datetime.date, last: datetime.date, tz_name: Optional[str]
+) -> list[dict]:
+    """Every completed task from day ``first`` to day ``last``, newest first,
+    asking again in two runs of days while an answer comes back full.
+
+    The bounds go out as midnight of each day: ``get_completed`` rejects an
+    end before its start before it widens both to whole days, so a time of day
+    on either bound would refuse a valid run of days."""
+    tasks = _get_completed(
+        client,
+        datetime.datetime.combine(first, datetime.time()),
+        datetime.datetime.combine(last, datetime.time()),
+        tz_name,
+    )
+    if len(tasks) < _COMPLETED_ANSWER_LIMIT:
+        return tasks
+    if first >= last:
+        logger.warning(
+            "%d or more tasks completed on %s; only the newest %d are returned.",
+            _COMPLETED_ANSWER_LIMIT,
+            first.isoformat(),
+            _COMPLETED_ANSWER_LIMIT,
+        )
+        return tasks
+    middle = first + (last - first) // 2
+    newer = _completed_between(client, middle + datetime.timedelta(days=1), last, tz_name)
+    older = _completed_between(client, first, middle, tz_name)
+    seen = {t.get("id") for t in newer}
+    return newer + [t for t in older if t.get("id") not in seen]
+
+
 class TaskFilterer:
     """Orchestrates fetch + filter + optional sort for a property filter."""
 
@@ -276,9 +330,9 @@ class TaskFilterer:
         """Fetch the candidate task set from TickTick.
 
         - ``status == "completed"``: requires a ``completion_date_filter``
-          with at least one bound. Calls ``client.task.get_completed`` and
-          re-applies the period filter for precise trimming. Any
-          underlying error is wrapped in ``ConnectionError``.
+          with at least one bound. Reads ``client.task.get_completed`` through
+          ``_completed_between`` and re-applies the period filter for precise
+          trimming. Any underlying error is wrapped in ``ConnectionError``.
         - Otherwise: walks every project for uncompleted tasks via
           ``_get_all_tasks_from_ticktick``.
         """
@@ -301,22 +355,17 @@ class TaskFilterer:
                 if tz_source is not None:
                     tz_name = getattr(tz_source, "key", None) or str(tz_source)
 
-                kwargs: dict[str, Any] = {
-                    "start": completion_date_filter.start_date,
-                    "end": completion_date_filter.end_date,
-                }
-                if tz_name:
-                    kwargs["tz"] = tz_name
-                tasks = client.task.get_completed(**kwargs)
+                start = completion_date_filter.start_date
+                end = completion_date_filter.end_date
+                if start is not None and end is not None:
+                    tasks = _completed_between(client, start.date(), end.date(), tz_name)
+                else:
+                    tasks = _get_completed(client, start, end, tz_name)
             except ConnectionError:
                 raise
             except Exception as exc:
                 raise ConnectionError(f"Failed to fetch completed tasks: {exc}") from exc
 
-            if tasks is None:
-                return []
-            if isinstance(tasks, dict):
-                tasks = [tasks]
             # Re-apply the window for precision (API filter is by day).
             return [t for t in tasks if completion_date_filter.contains(t.get("completedTime"))]
 
@@ -631,8 +680,9 @@ async def ticktick_filter_tasks(filter_criteria: Any, detail: str = DETAIL_COMPA
         a refresh. Completed queries are always fetched live.
 
     Limitations:
-        - TickTick caps ``get_completed`` at 100 results; very wide
-          completion windows are truncated server-side.
+        - TickTick answers at most 100 completed tasks at a time. A
+          completion window holding more is read in parts, except within a
+          single day, where only that day's newest 100 are returned.
         - Filtering happens client-side after the fetch, so additional
           criteria do not reduce the number of network requests.
         - Compact output is for browsing only; full content for one task
