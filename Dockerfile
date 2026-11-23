@@ -11,7 +11,7 @@ FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678
 # a version one already exists for, and a closed one still counts. So once a
 # floating tag's pull request is closed, no later rebuild of it is offered. Both
 # stages must move together, or the build and runtime images diverge.
-FROM python:3.15.0-slim@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58 AS build
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS build
 
 COPY --from=uv /uv /bin/uv
 
@@ -27,7 +27,7 @@ RUN uv sync --frozen --no-dev
 
 # Runtime stage: no git, just the built virtualenv and source. Patch tag for
 # the reason given on the build stage, and it must match it.
-FROM python:3.15.0-slim@sha256:f5b92f2a669a4c347044f29367f31983280b648250ca94dea66f98c53bc87e58
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 WORKDIR /app
 
